@@ -97,6 +97,19 @@
   .note { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; line-height: 1.7; }
   footer { text-align: center; color: #5c7268; font-size: 12px; margin-top: 34px; }
   a { color: var(--gold); }
+  .sparts { display: flex; gap: 8px; margin-bottom: 14px; }
+  .spart { flex: 1; background: var(--card2); border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 8px 4px; font-family: inherit; font-size: 12px; cursor: pointer; text-align: center; }
+  .spart.active { border-color: var(--gold-dim); color: var(--gold); background: rgba(201,162,75,.08); }
+  .spart .spart-ar { display: block; font-size: 15px; color: var(--text); margin-bottom: 2px; }
+  .spart.active .spart-ar { color: var(--gold); }
+  .story-order { color: var(--gold); font-size: 12px; min-width: 30px; }
+  .story-name-ar { direction: rtl; font-size: 20px; font-family: 'Traditional Arabic', 'Amiri', serif; }
+  .seclabel { color: var(--gold); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; margin: 18px 0 10px; }
+  .sref { display: inline-block; background: var(--gold); color: #10201f; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 1px 8px; margin-bottom: 8px; }
+  .hadith-ar { direction: rtl; font-size: 21px; line-height: 2; text-align: right; font-family: 'Traditional Arabic', 'Amiri', serif; margin-top: 10px; }
+  .story-nav { display: flex; gap: 8px; margin-top: 18px; }
+  .story-nav .btn { flex: 1; }
+  .story-desc { color: var(--muted); font-size: 13px; margin-top: 10px; line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -114,11 +127,13 @@
     <button class="tab active" data-tab="prayer">Prayer</button>
     <button class="tab" data-tab="quran">Quran</button>
     <button class="tab" data-tab="hadith">Hadith</button>
+    <button class="tab" data-tab="stories">Stories</button>
     <button class="tab" data-tab="duas">Du'as</button>
   </div>
   <div id="view"></div>
   <footer>Ilm Daily · built on the Ilm API · ilm-api.vercel.app</footer>
 </div>
+<script src="stories.js"></script>
 <script>
 const API = "https://ilm-api.vercel.app";
 const DEFAULT_KEY = "ilm_41cf502bdd0b2b07650bdb302edece3c";
@@ -151,6 +166,7 @@ function render(tab) {
   else if (tab === "quran") renderSurahList(view);
   else if (tab === "hadith") renderHadith(view);
   else if (tab === "duas") renderDuaCategories(view);
+  else if (tab === "stories") renderStories(view);
 }
 async function renderPrayer(view) {
   view.innerHTML = `
@@ -351,6 +367,78 @@ async function renderDuas(view, slug, title) {
     $("#dbody").innerHTML = `<div class="empty">Could not load du'as: ${esc(e.message)}</div>`;
   }
 }
+
+// ---- Stories (Qasas al-Anbiya) module, backed by QASAS in stories.js ----
+let storiesPart = "beginning";
+function renderStories(view) {
+  const parts = QASAS.parts;
+  const list = QASAS.stories.filter(s => s.part === storiesPart).sort((a, b) => a.order - b.order);
+  view.innerHTML = `
+    <div class="sparts">
+      ${Object.entries(parts).map(([k, p]) => `
+        <button class="spart ${k === storiesPart ? "active" : ""}" data-p="${k}">
+          <span class="spart-ar">${p.ar}</span>${esc(p.en)}
+        </button>`).join("")}
+    </div>
+    <div class="story-desc">${esc(parts[storiesPart].desc)}</div>
+    <div id="slist" style="margin-top:12px"></div>`;
+  view.querySelectorAll(".spart").forEach(b =>
+    b.addEventListener("click", () => { storiesPart = b.dataset.p; renderStories(view); }));
+  $("#slist").innerHTML = list.map(s => `
+    <div class="item" data-id="${s.id}">
+      <div class="surah-head">
+        <span class="story-order">${String(s.order).padStart(2, "0")}</span>
+        <span class="sname">${esc(s.nameEn)}<div class="sname-en">${esc(s.titleEn)}</div></span>
+        <span class="story-name-ar">${s.nameAr}</span>
+      </div>
+    </div>`).join("");
+  $("#slist").querySelectorAll(".item").forEach(el =>
+    el.addEventListener("click", () => renderStory(view, el.dataset.id)));
+}
+function renderStory(view, id) {
+  const s = QASAS.stories.find(x => x.id === id);
+  if (!s) { renderStories(view); return; }
+  const siblings = QASAS.stories.filter(x => x.part === s.part).sort((a, b) => a.order - b.order);
+  const idx = siblings.findIndex(x => x.id === id);
+  const prev = siblings[idx - 1], next = siblings[idx + 1];
+  view.innerHTML = `
+    <button class="back" id="sback">← ${esc(QASAS.parts[s.part].en)}</button>
+    <div class="card" style="text-align:center">
+      <div class="story-name-ar" style="font-size:34px">${s.nameAr}</div>
+      <div style="color:var(--gold);font-weight:600;margin-top:6px;font-size:17px">${esc(s.nameEn)}</div>
+      <div style="color:var(--text);font-size:14px;margin-top:4px">${esc(s.titleEn)}</div>
+      <div style="margin-top:10px"><span class="pill">${esc(s.era)}</span></div>
+    </div>
+    ${(s.summary || []).map(p => `<div class="card" style="font-size:15px;line-height:1.8">${esc(p)}</div>`).join("")}
+    ${s.ayat.length ? `
+      <div class="seclabel">From the Quran · مِنَ الْقُرْآنِ</div>
+      ${s.ayat.map(a => `
+        <div class="ayah" style="cursor:default">
+          <span class="sref">${a.ref}</span>
+          <div class="ar">${a.ar}</div>
+          <div class="tr">${esc(a.en)}</div>
+        </div>`).join("")}` : ""}
+    ${s.hadith.length ? `
+      <div class="seclabel">From the Sunnah · مِنَ السُّنَّةِ</div>
+      ${s.hadith.map(hd => `
+        <div class="ayah" style="cursor:default">
+          <div class="hadith-meta">
+            <span class="pill">${esc(hd.src)}</span>
+            ${hd.grade ? `<span class="pill green">${esc(hd.grade)}</span>` : ""}
+          </div>
+          <div class="tr" style="margin-top:0">${esc(hd.en)}</div>
+          ${hd.ar ? `<div class="hadith-ar">${hd.ar}</div>` : ""}
+        </div>`).join("")}` : ""}
+    <div class="story-nav">
+      <button class="btn ghost" id="sprev" ${prev ? "" : "disabled"}>← ${prev ? esc(prev.nameEn) : "—"}</button>
+      <button class="btn ghost" id="snext" ${next ? "" : "disabled"}>${next ? esc(next.nameEn) : "—"} →</button>
+    </div>`;
+  $("#sback").addEventListener("click", () => renderStories(view));
+  if (prev) $("#sprev").addEventListener("click", () => renderStory(view, prev.id));
+  if (next) $("#snext").addEventListener("click", () => renderStory(view, next.id));
+  window.scrollTo(0, 0);
+}
+
 render("prayer");
 </script>
 </body>
