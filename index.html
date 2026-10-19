@@ -74,6 +74,7 @@
   .sar { font-size: 17px; color: var(--text); }
   .back { background: none; border: none; color: var(--gold); cursor: pointer; font-size: 14px; font-family: inherit; margin-bottom: 12px; padding: 0; }
   .ayah {
+    position: relative;
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
     padding: 16px; margin-bottom: 12px; cursor: pointer;
   }
@@ -112,6 +113,8 @@
   .story-desc { color: var(--muted); font-size: 13px; margin-top: 10px; line-height: 1.6; }
 .achip{display:inline-block;border:1px solid var(--border);border-radius:14px;padding:4px 12px;font-size:13px;color:var(--muted);user-select:none}
 .achip.on{border-color:var(--gold);color:var(--gold)}
+.aplay{position:absolute;top:8px;inset-inline-end:8px;width:30px;height:30px;border-radius:50%;border:1px solid var(--gold);background:var(--card2);color:var(--gold);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.ayah.playing{border-color:var(--gold);background:rgba(201,162,75,.07)}
 </style>
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#0f2121">
@@ -279,18 +282,69 @@ async function renderSurah(view, n) {
     const data = await api(`/v1/quran/${n}?translation=en.sahih`);
     $("#sbody").innerHTML = `
       <div class="card" style="text-align:center">
-        <div class="sar" style="font-size:28px">${meta ? meta.name_arabic : ""}</div>
-        <div style="color:var(--gold);font-weight:600;margin-top:6px">${meta ? esc(meta.name_english) : "Surah " + n}</div>
-        <div style="color:var(--muted);font-size:13px;margin-top:2px">${meta ? esc(meta.name_transliteration) + " · " + meta.revelation_place + " · " + meta.ayah_count + " ayahs" : ""}</div>
+        <div class="sar" style="font-size:28px">${meta ? meta.name_arabic : ""}
+        <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">
+          <select id="reciter" style="background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:13px">
+            <option value="alafasy"${localStorage.getItem("ilm_reciter") === "alafasy" || !localStorage.getItem("ilm_reciter") ? " selected" : ""}>Mishary Alafasy</option>
+            <option value="husary"${localStorage.getItem("ilm_reciter") === "husary" ? " selected" : ""}>Mahmoud Al-Husary</option>
+            <option value="minshawi"${localStorage.getItem("ilm_reciter") === "minshawi" ? " selected" : ""}>Al-Minshawi</option>
+          </select>
+          <button class="btn" id="playSurah">▶ Play surah</button>
+        </div>
+      </div>
+        <div style="color:var(--gold);font-weight:600;margin-top:6px">${meta ? esc(meta.name_english) : "Surah " + n}
+        <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">
+          <select id="reciter" style="background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:13px">
+            <option value="alafasy"${localStorage.getItem("ilm_reciter") === "alafasy" || !localStorage.getItem("ilm_reciter") ? " selected" : ""}>Mishary Alafasy</option>
+            <option value="husary"${localStorage.getItem("ilm_reciter") === "husary" ? " selected" : ""}>Mahmoud Al-Husary</option>
+            <option value="minshawi"${localStorage.getItem("ilm_reciter") === "minshawi" ? " selected" : ""}>Al-Minshawi</option>
+          </select>
+          <button class="btn" id="playSurah">▶ Play surah</button>
+        </div>
+      </div>
+        <div style="color:var(--muted);font-size:13px;margin-top:2px">${meta ? esc(meta.name_transliteration) + " · " + meta.revelation_place + " · " + meta.ayah_count + " ayahs" : ""}
+        <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">
+          <select id="reciter" style="background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:13px">
+            <option value="alafasy"${localStorage.getItem("ilm_reciter") === "alafasy" || !localStorage.getItem("ilm_reciter") ? " selected" : ""}>Mishary Alafasy</option>
+            <option value="husary"${localStorage.getItem("ilm_reciter") === "husary" ? " selected" : ""}>Mahmoud Al-Husary</option>
+            <option value="minshawi"${localStorage.getItem("ilm_reciter") === "minshawi" ? " selected" : ""}>Al-Minshawi</option>
+          </select>
+          <button class="btn" id="playSurah">▶ Play surah</button>
+        </div>
+      </div>
+      
+        <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">
+          <select id="reciter" style="background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:13px">
+            <option value="alafasy"${localStorage.getItem("ilm_reciter") === "alafasy" || !localStorage.getItem("ilm_reciter") ? " selected" : ""}>Mishary Alafasy</option>
+            <option value="husary"${localStorage.getItem("ilm_reciter") === "husary" ? " selected" : ""}>Mahmoud Al-Husary</option>
+            <option value="minshawi"${localStorage.getItem("ilm_reciter") === "minshawi" ? " selected" : ""}>Al-Minshawi</option>
+          </select>
+          <button class="btn" id="playSurah">▶ Play surah</button>
+        </div>
       </div>
       ${data.ayahs.map(a => `
         <div class="ayah" data-a="${a.ayah_number}">
+          <button class="aplay" title="Play this ayah" data-p="${a.ayah_number}">▶</button>
           <span class="num">${a.ayah_number}</span>
           <div class="ar">${a.text_arabic}</div>
           <div class="tr">${esc(a.translation)}</div>
         </div>`).join("")}
       <p class="note">Tap any ayah for word-by-word Arabic, transliteration and grammar.</p>`;
     view.querySelectorAll(".ayah").forEach(el => el.addEventListener("click", () => toggleWords(el, n, +el.dataset.a)));
+    $("#reciter").addEventListener("change", e => {
+      localStorage.setItem("ilm_reciter", e.target.value);
+      stopQuranAudio();
+    });
+    $("#playSurah").addEventListener("click", () => {
+      const btn = $("#playSurah");
+      if (qAudio) { stopQuranAudio(); return; }
+      playQuranFrom(n, 1, meta ? meta.ayah_count : data.ayahs.length);
+    });
+    view.querySelectorAll(".aplay").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      if (qAudio && qAudio.dataset.a === b.dataset.p) { stopQuranAudio(); return; }
+      playQuranFrom(n, +b.dataset.p, meta ? meta.ayah_count : data.ayahs.length);
+    }));
   } catch (e) {
     $("#sbody").innerHTML = `<div class="empty">Could not load surah: ${esc(e.message)}</div>`;
   }
@@ -453,6 +507,41 @@ function renderStory(view, id) {
 }
 
 render("prayer");
+
+
+// ================= QURAN AUDIO (everyayah.com CDN) =================
+const RECITERS = {
+  alafasy: "Alafasy_128kbps",
+  husary: "Husary_128kbps",
+  minshawi: "Minshawy_Murattal_128kbps"
+};
+let qAudio = null;
+const curReciter = () => localStorage.getItem("ilm_reciter") || "alafasy";
+function ayahURL(surah, ayah) {
+  const p = v => String(v).padStart(3, "0");
+  return `https://everyayah.com/data/${RECITERS[curReciter()]}/${p(surah)}${p(ayah)}.mp3`;
+}
+function stopQuranAudio() {
+  if (qAudio) { qAudio.pause(); delete qAudio; qAudio = null; }
+  document.querySelectorAll(".ayah.playing").forEach(el => el.classList.remove("playing"));
+  const b = document.getElementById("playSurah"); if (b) b.textContent = "▶ Play surah";
+}
+function playQuranFrom(surah, startAyah, totalAyahs) {
+  stopQuranAudio();
+  const play = (aNo) => {
+    if (aNo > totalAyahs || !document.getElementById("playSurah")) { stopQuranAudio(); return; }
+    qAudio = new Audio(ayahURL(surah, aNo));
+    qAudio.dataset.a = aNo;
+    document.querySelectorAll(".ayah.playing").forEach(el => el.classList.remove("playing"));
+    const row = document.querySelector(`.ayah[data-a="${aNo}"]`);
+    if (row) { row.classList.add("playing"); row.scrollIntoView({ block: "center", behavior: "smooth" }); }
+    document.getElementById("playSurah").textContent = `⏹ Stop (${aNo}/${totalAyahs})`;
+    qAudio.addEventListener("ended", () => play(aNo + 1));
+    qAudio.addEventListener("error", () => stopQuranAudio());
+    qAudio.play().catch(() => stopQuranAudio());
+  };
+  play(startAyah);
+}
 
 // ================= SALAT ALARM =================
 const ALARM_KEY = "ilm_alarm";
