@@ -1,5 +1,5 @@
 // Ilm Daily service worker — offline shell + salat alarm support.
-const CACHE = 'ilm-daily-v1';
+const CACHE = 'ilm-daily-v3';
 const SHELL = ['/', '/index.html', '/stories.js', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -26,6 +26,17 @@ self.addEventListener('fetch', e => {
       );
     }
     return; // everything else cross-origin: straight to network
+  }
+  if (e.request.mode === 'navigate' || (e.request.headers.get('accept') || '').includes('text/html')) {
+    // network-first for pages: users always get the latest version, offline falls back to cache
+    e.respondWith(
+      fetch(e.request).then(r => {
+        const copy = r.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy));
+        return r;
+      }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(hit => hit || caches.match('/', { ignoreSearch: true })))
+    );
+    return;
   }
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(hit =>

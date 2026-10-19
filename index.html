@@ -115,6 +115,10 @@
 .achip.on{border-color:var(--gold);color:var(--gold)}
 .aplay{position:absolute;top:8px;inset-inline-end:8px;width:30px;height:30px;border-radius:50%;border:1px solid var(--gold);background:var(--card2);color:var(--gold);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .ayah.playing{border-color:var(--gold);background:rgba(201,162,75,.07)}
+.tafsir-block{border:1px solid var(--border);border-radius:8px;margin-top:10px;background:var(--card2)}
+.tafsir-block summary{cursor:pointer;padding:8px 10px;color:var(--gold);font-weight:600;font-size:13px}
+.tafsir-text{padding:4px 12px 10px;font-size:13.5px;line-height:1.6}
+.tafsir-text p{margin:0 0 8px}
 </style>
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#0f2121">
@@ -282,37 +286,9 @@ async function renderSurah(view, n) {
     const data = await api(`/v1/quran/${n}?translation=en.sahih`);
     $("#sbody").innerHTML = `
       <div class="card" style="text-align:center">
-        <div class="sar" style="font-size:28px">${meta ? meta.name_arabic : ""}
-        <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">
-          <select id="reciter" style="background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:13px">
-            <option value="alafasy"${localStorage.getItem("ilm_reciter") === "alafasy" || !localStorage.getItem("ilm_reciter") ? " selected" : ""}>Mishary Alafasy</option>
-            <option value="husary"${localStorage.getItem("ilm_reciter") === "husary" ? " selected" : ""}>Mahmoud Al-Husary</option>
-            <option value="minshawi"${localStorage.getItem("ilm_reciter") === "minshawi" ? " selected" : ""}>Al-Minshawi</option>
-          </select>
-          <button class="btn" id="playSurah">▶ Play surah</button>
-        </div>
-      </div>
-        <div style="color:var(--gold);font-weight:600;margin-top:6px">${meta ? esc(meta.name_english) : "Surah " + n}
-        <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">
-          <select id="reciter" style="background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:13px">
-            <option value="alafasy"${localStorage.getItem("ilm_reciter") === "alafasy" || !localStorage.getItem("ilm_reciter") ? " selected" : ""}>Mishary Alafasy</option>
-            <option value="husary"${localStorage.getItem("ilm_reciter") === "husary" ? " selected" : ""}>Mahmoud Al-Husary</option>
-            <option value="minshawi"${localStorage.getItem("ilm_reciter") === "minshawi" ? " selected" : ""}>Al-Minshawi</option>
-          </select>
-          <button class="btn" id="playSurah">▶ Play surah</button>
-        </div>
-      </div>
-        <div style="color:var(--muted);font-size:13px;margin-top:2px">${meta ? esc(meta.name_transliteration) + " · " + meta.revelation_place + " · " + meta.ayah_count + " ayahs" : ""}
-        <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">
-          <select id="reciter" style="background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:13px">
-            <option value="alafasy"${localStorage.getItem("ilm_reciter") === "alafasy" || !localStorage.getItem("ilm_reciter") ? " selected" : ""}>Mishary Alafasy</option>
-            <option value="husary"${localStorage.getItem("ilm_reciter") === "husary" ? " selected" : ""}>Mahmoud Al-Husary</option>
-            <option value="minshawi"${localStorage.getItem("ilm_reciter") === "minshawi" ? " selected" : ""}>Al-Minshawi</option>
-          </select>
-          <button class="btn" id="playSurah">▶ Play surah</button>
-        </div>
-      </div>
-      
+        <div class="sar" style="font-size:28px">${meta ? meta.name_arabic : ""}</div>
+        <div style="color:var(--gold);font-weight:600;margin-top:6px">${meta ? esc(meta.name_english) : "Surah " + n}</div>
+        <div style="color:var(--muted);font-size:13px;margin-top:2px">${meta ? esc(meta.name_transliteration) + " · " + meta.revelation_place + " · " + meta.ayah_count + " ayahs" : ""}</div>
         <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">
           <select id="reciter" style="background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:13px">
             <option value="alafasy"${localStorage.getItem("ilm_reciter") === "alafasy" || !localStorage.getItem("ilm_reciter") ? " selected" : ""}>Mishary Alafasy</option>
@@ -329,7 +305,7 @@ async function renderSurah(view, n) {
           <div class="ar">${a.text_arabic}</div>
           <div class="tr">${esc(a.translation)}</div>
         </div>`).join("")}
-      <p class="note">Tap any ayah for word-by-word Arabic, transliteration and grammar.</p>`;
+      <p class="note">Tap any ayah for word-by-word Arabic, transliteration, grammar — and tafsir (Ibn Kathir / Maarif-ul-Quran).</p>`;
     view.querySelectorAll(".ayah").forEach(el => el.addEventListener("click", () => toggleWords(el, n, +el.dataset.a)));
     $("#reciter").addEventListener("change", e => {
       localStorage.setItem("ilm_reciter", e.target.value);
@@ -365,9 +341,31 @@ async function toggleWords(el, surah, ayah) {
             <div class="wbw-tr">${esc(w.translation || "")}</div>
             <div class="wbw-pos">${esc(w.part_of_speech || "")}${w.root_arabic ? " · root: " + w.root_arabic : ""}</div>
           </div>`).join("")}
-      </div>`;
+      </div>
+      <div class="tafsir-sec"><div class="loading">Loading tafsir…</div></div>`;
+    loadTafsir(el, surah, ayah);
   } catch (e) {
     el.querySelector(".wbw").innerHTML = `<div class="empty">Could not load words: ${esc(e.message)}</div>`;
+  }
+}
+async function loadTafsir(el, surah, ayah) {
+  const target = el.querySelector(".tafsir-sec");
+  if (!target || target.dataset.loaded) return;
+  try {
+    const data = await api(`/v1/tafsir/${surah}/${ayah}`);
+    target.dataset.loaded = "1";
+    if (!data.tafsir || !data.tafsir.length) {
+      target.innerHTML = `<div class="wbw-title">Tafsir</div><div class="empty">No tafsir for this ayah.</div>`;
+      return;
+    }
+    target.innerHTML = data.tafsir.map((t, i) => `
+      <details class="tafsir-block" ${i === 0 ? "open" : ""}>
+        <summary>Tafsir — ${esc(t.source)}</summary>
+        <div class="tafsir-text">${(t.text || "").split(/\n\n+/).map(p => `<p>${esc(p)}</p>`).join("")}</div>
+      </details>`).join("");
+  } catch (e) {
+    target.dataset.loaded = "";
+    target.innerHTML = `<div class="wbw-title">Tafsir</div><div class="empty">Could not load tafsir: ${esc(e.message)}</div>`;
   }
 }
 function renderHadith(view) {
