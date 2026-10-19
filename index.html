@@ -110,7 +110,15 @@
   .story-nav { display: flex; gap: 8px; margin-top: 18px; }
   .story-nav .btn { flex: 1; }
   .story-desc { color: var(--muted); font-size: 13px; margin-top: 10px; line-height: 1.6; }
+.achip{display:inline-block;border:1px solid var(--border);border-radius:14px;padding:4px 12px;font-size:13px;color:var(--muted);user-select:none}
+.achip.on{border-color:var(--gold);color:var(--gold)}
 </style>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0f2121">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
 </head>
 <body>
 <div class="wrap">
@@ -133,6 +141,7 @@
   <div id="view"></div>
   <footer>Ilm Daily · built on the Ilm API · ilm-api.vercel.app</footer>
 </div>
+<script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));</script>
 <script src="stories.js"></script>
 <script>
 const API = "https://ilm-api.vercel.app";
@@ -175,7 +184,8 @@ async function renderPrayer(view) {
       <button class="btn ghost" id="gps">Use GPS</button>
     </div>
     <div id="prayer-body"><div class="loading">Loading prayer times…</div></div>
-    <p class="note">Times shown in your device's local time. Default location is Tarkwa, Ghana.</p>`;
+    <p class="note">Times shown in your device's local time. Default location is Tarkwa, Ghana.</p>
+    <div id="alarm-body" class="card" style="margin-top:14px"></div>`;
   $("#gps").addEventListener("click", () => {
     if (!navigator.geolocation) return alert("GPS not supported on this device");
     $("#gps").textContent = "Locating…";
@@ -213,8 +223,11 @@ async function renderPrayer(view) {
       : `<div class="card" style="text-align:center;color:var(--muted)">Isha has passed — next prayer is tomorrow's Fajr, God willing.</div>`;
     body.innerHTML = nextLine + `<div class="card">${rows}</div>`;
     if (next) tickCountdown(next.at);
+    scheduleSalatAlarms(times);
+    renderAlarmCard();
   } catch (e) {
     body.innerHTML = `<div class="empty">Could not load prayer times: ${esc(e.message)}</div>`;
+    renderAlarmCard();
   }
 }
 function tickCountdown(target) {
@@ -440,6 +453,145 @@ function renderStory(view, id) {
 }
 
 render("prayer");
+
+// ================= SALAT ALARM =================
+const ALARM_KEY = "ilm_alarm";
+const ADHAN_URL = "https://www.islamcan.com/audio/adhan/azan1.mp3";
+let alarmCfg = JSON.parse(localStorage.getItem(ALARM_KEY) || "null") ||
+  { on: false, sound: "adhan", prayers: { fajr: true, dhuhr: true, asr: true, maghrib: true, isha: true } };
+let alarmTimers = [];
+let adhanAudio = null;
+
+function saveAlarm() { localStorage.setItem(ALARM_KEY, JSON.stringify(alarmCfg)); }
+
+function renderAlarmCard() {
+  const box = $("#alarm-body");
+  if (!box) return;
+  const pr = alarmCfg.prayers;
+  const perm = typeof Notification !== "undefined" ? Notification.permission : "unsupported";
+  box.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <b style="color:var(--gold)">🔔 Salat Alarm</b>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="alarmOn" ${alarmCfg.on ? "checked" : ""} style="width:18px;height:18px;accent-color:var(--gold)">
+        <span>${alarmCfg.on ? "ON" : "OFF"}</span>
+      </label>
+    </div>
+    <div style="margin-top:10px;font-size:13px;color:var(--muted)">Ring the adhan at each prayer time while the app is open.</div>
+    <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+      ${Object.keys(pr).map(k => `<label class="achip ${pr[k] ? "on" : ""}" data-k="${k}" style="cursor:pointer">${pr[k] ? "✓ " : ""}${{fajr:"Fajr",dhuhr:"Dhuhr",asr:"Asr",maghrib:"Maghrib",isha:"Isha"}[k]}</label>`).join("")}
+    </div>
+    <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="alarmSound" style="background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:6px 8px">
+        <option value="adhan" ${alarmCfg.sound === "adhan" ? "selected" : ""}>Adhan (Makkah)</option>
+        <option value="chime" ${alarmCfg.sound === "chime" ? "selected" : ""}>Gentle chime</option>
+      </select>
+      <button class="btn ghost" id="alarmTest">Test ▶</button>
+      <span id="alarmPerm" style="font-size:12px;color:var(--muted)">${perm === "granted" ? "Notifications ✓" : perm === "denied" ? "Notifications blocked" : perm === "unsupported" ? "" : "Tap ON to allow notifications"}</span>
+    </div>`;
+  $("#alarmOn").addEventListener("change", e => {
+    alarmCfg.on = e.target.checked;
+    saveAlarm();
+    if (alarmCfg.on && typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().then(() => renderAlarmCard());
+    }
+    renderAlarmCard();
+  });
+  box.querySelectorAll(".achip").forEach(chip => chip.addEventListener("click", () => {
+    const k = chip.dataset.k;
+    alarmCfg.prayers[k] = !alarmCfg.prayers[k];
+    saveAlarm(); renderAlarmCard();
+  }));
+  $("#alarmSound").addEventListener("change", e => { alarmCfg.sound = e.target.value; saveAlarm(); });
+  $("#alarmTest").addEventListener("click", () => ringAlarm("test"));
+}
+
+function scheduleSalatAlarms(times) {
+  alarmTimers.forEach(t => clearTimeout(t));
+  alarmTimers = [];
+  if (!alarmCfg.on) return;
+  const now = new Date();
+  let scheduled = 0;
+  for (const k of ["fajr", "dhuhr", "asr", "maghrib", "isha"]) {
+    if (!alarmCfg.prayers[k]) continue;
+    const t = new Date(times[k]);
+    const ms = t - now;
+    if (ms > 0 && ms < 36 * 3600 * 1000) {
+      alarmTimers.push(setTimeout(() => ringAlarm(k), ms));
+      scheduled++;
+    }
+  }
+  // after Isha, wake just after midnight to reschedule for tomorrow's Fajr
+  const midnight = new Date(); midnight.setHours(24, 0, 10, 0);
+  const mms = midnight - now;
+  if (mms > 0) alarmTimers.push(setTimeout(() => { if (alarmCfg.on) render("prayer"); }, mms));
+  // keep the schedule warm if the tab was asleep (missed timers)
+  clearInterval(window.__alarmChk);
+  window.__alarmChk = setInterval(() => {
+    if (!alarmCfg.on) return;
+    for (const k of ["fajr", "dhuhr", "asr", "maghrib", "isha"]) {
+      if (!alarmCfg.prayers[k]) continue;
+      const t = new Date(times[k]);
+      const since = now2() - t;
+      if (since > 0 && since < 45000 && !window.__rang?.[k + t.getDate()]) {
+        (window.__rang = window.__rang || {})[k + t.getDate()] = 1;
+        ringAlarm(k);
+      }
+    }
+  }, 30000);
+  function now2() { return new Date(); }
+}
+
+let chimeCtx = null;
+function playChime() {
+  try {
+    chimeCtx = chimeCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = chimeCtx;
+    if (ctx.state === "suspended") ctx.resume();
+    for (let rep = 0; rep < 3; rep++) {
+      [880, 1174.7].forEach((f, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = "sine"; o.frequency.value = f;
+        const t0 = ctx.currentTime + rep * 1.1 + i * 0.02;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.4, t0 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.0);
+        o.connect(g).connect(ctx.destination);
+        o.start(t0); o.stop(t0 + 1.05);
+      });
+    }
+    return true;
+  } catch (e) { return false; }
+}
+
+function playAlarmSound() {
+  if (alarmCfg.sound === "chime") { playChime(); return; }
+  try {
+    adhanAudio = adhanAudio || new Audio(ADHAN_URL);
+    adhanAudio.volume = 1;
+    adhanAudio.currentTime = 0;
+    adhanAudio.play().catch(() => playChime());
+  } catch (e) { playChime(); }
+}
+
+function ringAlarm(key) {
+  if (key !== "test" && !alarmCfg.on) return;
+  const label = key === "test" ? "Test alarm" : `It is time for ${PRAYER_NAMES[key]}`;
+  playAlarmSound();
+  try { navigator.vibrate && navigator.vibrate([400, 200, 400, 200, 600]); } catch (e) {}
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    try { new Notification("Ilm Daily — " + label, { body: key === "test" ? "This is how the salat alarm sounds." : `${PRAYER_NAMES[key]} has begun in your area. حي على الصلاة`, icon: "/icon-192.png" }); } catch (e) {}
+  }
+  const banner = document.createElement("div");
+  banner.id = "alarmBanner";
+  banner.style.cssText = "position:fixed;inset:auto 0 0 0;z-index:999;background:#C9A24B;color:#0f2121;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;gap:12px;font-weight:600;box-shadow:0 -4px 20px rgba(0,0,0,.4)";
+  banner.innerHTML = `<span>🔔 ${esc(label)}${key === "test" ? "" : ` — <span dir="rtl">حي على الصلاة</span>`}</span><button style="background:#0f2121;color:#C9A24B;border:none;border-radius:8px;padding:6px 14px;cursor:pointer">Dismiss</button>`;
+  banner.querySelector("button").addEventListener("click", () => banner.remove());
+  document.body.appendChild(banner);
+  setTimeout(() => banner.remove(), 60000);
+  if (key !== "test") setTimeout(() => render("prayer"), 4000);
+}
+
 </script>
 </body>
 </html>
