@@ -621,7 +621,7 @@ async function renderHadithNumber(view, slug, number) {
     $("#hbody").innerHTML = `
       <div class="card" style="text-align:center;margin:10px 12px;padding:14px">
         <div class="hb-avatar" style="background:${m.color};margin-bottom:8px">${m.init}</div>
-        <div style="font-weight:700;color:var(--fg)">${esc(h.collection || slug)} — No. ${esc(h.hadith_number)}</div>
+        <div style="font-weight:700;color:var(--fg)">${esc(h.collection_name || h.collection || slug)} — No. ${esc(h.hadith_number)}</div>
         <div class="hb-ar">${m.ar}</div>
       </div>
       ${hadithCard(h, true)}
