@@ -94,6 +94,23 @@
   .pill.green { border-color: #6d837b; color: #9fc4ab; }
   .dua-ref { color: #6d837b; font-size: 12px; margin-top: 10px; font-style: italic; }
   .empty { text-align: center; color: var(--muted); padding: 40px 10px; font-size: 14px; }
+  .hgrid-head { text-align: left; color: var(--muted); font-size: 13px; margin: 14px 12px 6px; font-weight: 600; letter-spacing: .4px; }
+  #hbooks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 12px; }
+  .hbook { text-align: center; padding: 14px 8px; cursor: pointer; border: 1px solid var(--border); border-radius: 12px; background: var(--card2); }
+  .hbook:active { transform: scale(.98); }
+  .hb-avatar { width: 46px; height: 46px; border-radius: 50%; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #fff; font-size: 16px; }
+  .hb-name { font-weight: 700; font-size: 13px; color: var(--fg); }
+  .hb-ar { font-size: 16px; margin-top: 3px; color: var(--gold); }
+  .hb-count { font-size: 11px; color: var(--muted); margin-top: 5px; }
+  .hcard .hc-en { color: var(--text); font-size: 13.5px; margin-top: 4px; }
+  .hcard .hc-en b { color: var(--fg); }
+  .hcard .hc-ar { display: none; direction: rtl; text-align: right; font-size: 19px; line-height: 1.9; margin-top: 8px; font-family: 'Traditional Arabic', 'Amiri', serif; }
+  .hcard.open .hc-ar { display: block; }
+  .hc-clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .hcard.open .hc-clamp { display: block; overflow: visible; }
+  .hpager { display: flex; gap: 10px; align-items: center; justify-content: center; margin: 14px 0; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+  .hjump { display: flex; gap: 6px; justify-content: center; align-items: center; margin: 10px 0 16px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .hjump input { width: 72px; background: var(--card2); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font-size: 13px; }
   .loading { text-align: center; color: var(--muted); padding: 30px; font-size: 14px; }
   .note { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; line-height: 1.7; }
   footer { text-align: center; color: #5c7268; font-size: 12px; margin-top: 34px; }
@@ -471,13 +488,59 @@ async function loadTafsir(el, surah, ayah) {
     target.innerHTML = `<div class="wbw-title">Tafsir</div><div class="empty">Could not load tafsir: ${esc(e.message)}</div>`;
   }
 }
+const HADITH_BOOKS = {
+  bukhari:  { init: "B",  color: "#e53935", ar: "\u0635\u062d\u064a\u062d \u0627\u0644\u0628\u062e\u0627\u0631\u064a" },
+  muslim:   { init: "M",  color: "#d81b60", ar: "\u0635\u062d\u064a\u062d \u0645\u0633\u0644\u0645" },
+  nasai:    { init: "N",  color: "#5e35b1", ar: "\u0633\u0646\u0646 \u0627\u0644\u0646\u0633\u0627\u0626\u064a" },
+  abudawud: { init: "AD", color: "#1e88e5", ar: "\u0633\u0646\u0646 \u0623\u0628\u064a \u062f\u0627\u0648\u062f" },
+  tirmidhi: { init: "T",  color: "#00897b", ar: "\u062c\u0627\u0645\u0639 \u0627\u0644\u062a\u0631\u0645\u0630\u064a" },
+  ibnmajah: { init: "IM", color: "#f4511e", ar: "\u0633\u0646\u0646 \u0627\u0628\u0646 \u0645\u0627\u062c\u0647" }
+};
+const hbMeta = s => HADITH_BOOKS[s] || { init: (s[0] || "?").toUpperCase(), color: "#88807a", ar: "" };
+function hadithCard(h, open) {
+  return `
+    <div class="ayah hcard ${open ? "open" : ""}" style="cursor:default">
+      <div class="hadith-meta">
+        <span class="pill">No. ${esc(h.hadith_number)}</span>
+        ${h.book_name ? `<span class="pill">${esc(h.book_name)}</span>` : ""}
+        ${h.grade ? `<span class="pill green">${esc(h.grade)}</span>` : ""}
+      </div>
+      <div class="hc-en hc-clamp"><b>${esc(h.narrator || "")}</b>: ${esc(h.text_english || "")}</div>
+      ${h.text_arabic ? `<div class="hc-ar">${h.text_arabic}</div>` : ""}
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">Tap to ${open ? "collapse" : "show Arabic & full text"}</div>
+    </div>`;
+}
 function renderHadith(view) {
   view.innerHTML = `
     <div class="searchbar">
-      <input id="hsearch" placeholder="Search 34,000+ hadith by keyword" />
+      <input id="hsearch" placeholder="Search the hadith library by keyword" />
       <button class="btn" id="hgo">Search</button>
     </div>
-    <div id="hresults"><div class="empty">Search the six canonical collections by keyword.</div></div>`;
+    <div id="hresults">
+      <div class="hgrid-head">All Books</div>
+      <div id="hbooks"><div class="loading">Loading books…</div></div>
+    </div>`;
+  (async () => {
+    try {
+      const colls = await api("/v1/hadith/collections");
+      const order = ["bukhari", "muslim", "nasai", "abudawud", "tirmidhi", "ibnmajah"];
+      colls.sort((a, b) => order.indexOf(a.slug) - order.indexOf(b.slug));
+      $("#hbooks").innerHTML = colls.map(c => {
+        const m = hbMeta(c.slug);
+        return `
+        <div class="hbook" data-slug="${c.slug}">
+          <div class="hb-avatar" style="background:${m.color}">${m.init}</div>
+          <div class="hb-name">${esc(c.name)}</div>
+          <div class="hb-ar">${m.ar}</div>
+          <div class="hb-count">\ud83d\udcd6 ${Number(c.total_hadith).toLocaleString()} Ahadith</div>
+        </div>`;
+      }).join("");
+      $("#hbooks").querySelectorAll(".hbook").forEach(el =>
+        el.addEventListener("click", () => renderHadithBook(view, el.dataset.slug)));
+    } catch (e) {
+      $("#hbooks").innerHTML = `<div class="empty">Could not load books: ${esc(e.message)}</div>`;
+    }
+  })();
   const run = async () => {
     const q = $("#hsearch").value.trim();
     if (!q) return;
@@ -488,7 +551,7 @@ function renderHadith(view) {
         ? `<div class="empty">No hadith found for "${esc(q)}".</div>`
         : `<p class="note" style="text-align:left">${data.count} results for "${esc(q)}" — showing first 20</p>` +
           data.results.map(h => `
-            <div class="ayah" style="cursor:default">
+            <div class="ayah hcard" style="cursor:default">
               <div class="hadith-meta">
                 <span class="pill">${esc(h.collection)}</span>
                 <span class="pill">No. ${esc(h.hadith_number)}</span>
@@ -496,13 +559,78 @@ function renderHadith(view) {
               </div>
               ${h.text_arabic ? `<div class="ar" style="font-size:19px;margin-bottom:8px">${h.text_arabic}</div>` : ""}
               <div class="tr" style="color:var(--text)">Narrated ${esc(h.narrator)}: ${esc(h.text_english)}</div>
-            </div>`).join("");
+            </div>`).join("") +
+          `<div style="text-align:center;margin:14px"><button class="btn ghost" id="hBack">← Back to books</button></div>`;
+      const b = document.getElementById("hBack");
+      if (b) b.addEventListener("click", () => renderHadith(view));
     } catch (e) {
       $("#hresults").innerHTML = `<div class="empty">Search failed: ${esc(e.message)}</div>`;
     }
   };
   $("#hgo").addEventListener("click", run);
   $("#hsearch").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+}
+async function renderHadithBook(view, slug, page = 1) {
+  const m = hbMeta(slug);
+  view.innerHTML = `<button class="back" id="back">← All books</button><div id="hbody"><div class="loading">Loading…</div></div>`;
+  $("#back").addEventListener("click", () => renderHadith(view));
+  try {
+    const data = await api(`/v1/hadith/${slug}?limit=20&page=${page}`);
+    const pager = (cls) => `
+      <div class="hpager ${cls}">
+        <button class="btn ghost" data-p="${data.prev_page || ""}" ${!data.has_prev ? "disabled" : ""}>← Prev</button>
+        <span>Page ${data.page} of ${data.total_pages}</span>
+        <button class="btn ghost" data-p="${data.next_page || ""}" ${!data.has_next ? "disabled" : ""}>Next →</button>
+      </div>`;
+    $("#hbody").innerHTML = `
+      <div class="card" style="text-align:center;margin:10px 12px;padding:14px">
+        <div class="hb-avatar" style="background:${m.color};margin-bottom:8px">${m.init}</div>
+        <div style="font-weight:700;color:var(--fg)">${esc(data.collection.name)}</div>
+        <div class="hb-ar">${m.ar}</div>
+        <div class="hb-count">${Number(data.total).toLocaleString()} Ahadith</div>
+      </div>
+      <div class="hjump">
+        Page <input id="hpage" type="number" min="1" max="${data.total_pages}" value="${data.page}"> or hadith no. <input id="hnum" type="number" placeholder="e.g. 2557"> <button class="btn ghost" id="hGo2">Go</button>
+      </div>
+      ${pager("top")}
+      <div id="hlist">${data.hadiths.map(h => hadithCard(h, false)).join("") || `<div class="empty">No hadiths.</div>`}</div>
+      ${pager("bot")}`;
+    view.querySelectorAll("#hbody .hcard").forEach(el =>
+      el.addEventListener("click", () => el.classList.toggle("open")));
+    view.querySelectorAll("#hbody .hpager button[data-p]").forEach(b =>
+      b.addEventListener("click", () => { const p = b.dataset.p; if (p) renderHadithBook(view, slug, +p); }));
+    const go2 = () => {
+      const n = parseInt(document.getElementById("hnum").value, 10);
+      const p = parseInt(document.getElementById("hpage").value, 10);
+      if (n) renderHadithNumber(view, slug, n);
+      else if (p && p >= 1 && p <= data.total_pages) renderHadithBook(view, slug, p);
+    };
+    document.getElementById("hGo2").addEventListener("click", go2);
+    document.getElementById("hpage").addEventListener("keydown", e => { if (e.key === "Enter") go2(); });
+    document.getElementById("hnum").addEventListener("keydown", e => { if (e.key === "Enter") go2(); });
+  } catch (e) {
+    $("#hbody").innerHTML = `<div class="empty">Could not load book: ${esc(e.message)}</div>`;
+  }
+}
+async function renderHadithNumber(view, slug, number) {
+  const m = hbMeta(slug);
+  view.innerHTML = `<button class="back" id="back">← Back to ${esc(slug)}</button><div id="hbody"><div class="loading">Loading…</div></div>`;
+  $("#back").addEventListener("click", () => renderHadithBook(view, slug));
+  try {
+    const h = await api(`/v1/hadith/${slug}/${number}`);
+    $("#hbody").innerHTML = `
+      <div class="card" style="text-align:center;margin:10px 12px;padding:14px">
+        <div class="hb-avatar" style="background:${m.color};margin-bottom:8px">${m.init}</div>
+        <div style="font-weight:700;color:var(--fg)">${esc(h.collection || slug)} — No. ${esc(h.hadith_number)}</div>
+        <div class="hb-ar">${m.ar}</div>
+      </div>
+      ${hadithCard(h, true)}
+      <div style="text-align:center;margin:14px"><button class="btn ghost" id="hBack2">← Back to book</button></div>`;
+    document.getElementById("hBack2").addEventListener("click", () => renderHadithBook(view, slug));
+  } catch (e) {
+    $("#hbody").innerHTML = `<div class="empty">Hadith not found: ${esc(e.message)}<br><br><button class="btn ghost" id="hBack2">← Back to book</button></div>`;
+    document.getElementById("hBack2").addEventListener("click", () => renderHadithBook(view, slug));
+  }
 }
 async function renderDuaCategories(view) {
   view.innerHTML = `<div id="dlist"><div class="loading">Loading du'a categories…</div></div>`;
