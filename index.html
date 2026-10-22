@@ -119,6 +119,9 @@
 .tafsir-block summary{cursor:pointer;padding:8px 10px;color:var(--gold);font-weight:600;font-size:13px}
 .tafsir-text{padding:4px 12px 10px;font-size:13.5px;line-height:1.6}
 .tafsir-text p{margin:0 0 8px}
+
+#dlSurah.saved{border-color:#6d837b;color:#9fc4ab}
+.rnote{color:var(--muted);font-size:12px;margin-top:6px;line-height:1.5}
 </style>
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#0f2121">
@@ -148,7 +151,7 @@
   <div id="view"></div>
   <footer>Ilm Daily · built on the Ilm API · ilm-api.vercel.app</footer>
 </div>
-<script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));</script>
+<script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));</script>
 <script src="stories.js"></script>
 <script>
 const API = "https://ilm-api.vercel.app";
@@ -294,8 +297,10 @@ async function renderSurah(view, n) {
             <option value="alafasy"${localStorage.getItem("ilm_reciter") === "alafasy" || !localStorage.getItem("ilm_reciter") ? " selected" : ""}>Mishary Alafasy</option>
             <option value="husary"${localStorage.getItem("ilm_reciter") === "husary" ? " selected" : ""}>Mahmoud Al-Husary</option>
             <option value="minshawi"${localStorage.getItem("ilm_reciter") === "minshawi" ? " selected" : ""}>Al-Minshawi</option>
+            <option value="islam_sobhi"${localStorage.getItem("ilm_reciter") === "islam_sobhi" ? " selected" : ""}>Islam Sobhi</option>
           </select>
           <button class="btn" id="playSurah">▶ Play surah</button>
+          <button class="btn ghost" id="dlSurah">⬇ Save offline</button>
         </div>
       </div>
       ${data.ayahs.map(a => `
@@ -305,21 +310,27 @@ async function renderSurah(view, n) {
           <div class="ar">${a.text_arabic}</div>
           <div class="tr">${esc(a.translation)}</div>
         </div>`).join("")}
+      <div class="rnote" id="rnote"></div>
       <p class="note">Tap any ayah for word-by-word Arabic, transliteration, grammar — and tafsir (Ibn Kathir / Maarif-ul-Quran).</p>`;
     view.querySelectorAll(".ayah").forEach(el => el.addEventListener("click", () => toggleWords(el, n, +el.dataset.a)));
     $("#reciter").addEventListener("change", e => {
       localStorage.setItem("ilm_reciter", e.target.value);
       stopQuranAudio();
+      applyReciterUI(n);
     });
+    $("#dlSurah").addEventListener("click", () => {
+      saveSurahOffline(n, meta ? meta.ayah_count : data.ayahs.length, $("#dlSurah"));
+    });
+    applyReciterUI(n);
     $("#playSurah").addEventListener("click", () => {
       const btn = $("#playSurah");
       if (qAudio) { stopQuranAudio(); return; }
-      playQuranFrom(n, 1, meta ? meta.ayah_count : data.ayahs.length);
+      playQuranFrom(n, 1, meta ? meta.ayah_count : data.ayahs.length, meta ? meta.name_transliteration : "Surah " + n);
     });
     view.querySelectorAll(".aplay").forEach(b => b.addEventListener("click", e => {
       e.stopPropagation();
       if (qAudio && qAudio.dataset.a === b.dataset.p) { stopQuranAudio(); return; }
-      playQuranFrom(n, +b.dataset.p, meta ? meta.ayah_count : data.ayahs.length);
+      playQuranFrom(n, +b.dataset.p, meta ? meta.ayah_count : data.ayahs.length, meta ? meta.name_transliteration : "Surah " + n);
     }));
   } catch (e) {
     $("#sbody").innerHTML = `<div class="empty">Could not load surah: ${esc(e.message)}</div>`;
@@ -507,38 +518,130 @@ function renderStory(view, id) {
 render("prayer");
 
 
-// ================= QURAN AUDIO (everyayah.com CDN) =================
+// ================= QURAN AUDIO (everyayah.com + mp3quran.net CDNs) =================
 const RECITERS = {
-  alafasy: "Alafasy_128kbps",
-  husary: "Husary_128kbps",
-  minshawi: "Minshawy_Murattal_128kbps"
+  alafasy: { name: "Mishary Alafasy", dir: "Alafasy_128kbps" },
+  husary: { name: "Mahmoud Al-Husary", dir: "Husary_128kbps" },
+  minshawi: { name: "Al-Minshawi", dir: "Minshawy_Murattal_128kbps" },
+  islam_sobhi: { name: "Islam Sobhi", fullSurah: true }
 };
 let qAudio = null;
 const curReciter = () => localStorage.getItem("ilm_reciter") || "alafasy";
+const curRecInfo = () => RECITERS[curReciter()] || RECITERS.alafasy;
+const pad3 = v => String(v).padStart(3, "0");
 function ayahURL(surah, ayah) {
-  const p = v => String(v).padStart(3, "0");
-  return `https://everyayah.com/data/${RECITERS[curReciter()]}/${p(surah)}${p(ayah)}.mp3`;
+  return `https://everyayah.com/data/${curRecInfo().dir}/${pad3(surah)}${pad3(ayah)}.mp3`;
 }
+function surahAudioURL(surah) {
+  return `https://cdn.mp3quran.net/audio/islam-sobhi/r1/${pad3(surah)}.mp3`;
+}
+function surahAudioUrls(surah, totalAyahs) {
+  return curRecInfo().fullSurah
+    ? [surahAudioURL(surah)]
+    : Array.from({ length: totalAyahs }, (_, i) => ayahURL(surah, i + 1));
+}
+
+// ---- Offline: save a surah's audio to Cache Storage (works without network after) ----
+const AUDIO_CACHE = "ilm-quran-audio";
+const offlineKey = surah => `${curReciter()}_${surah}`;
+const offlineMap = () => JSON.parse(localStorage.getItem("ilm_offline") || "{}");
+const isSavedOffline = surah => !!offlineMap()[offlineKey(surah)];
+function applyReciterUI(surah) {
+  const full = !!curRecInfo().fullSurah;
+  document.querySelectorAll(".aplay").forEach(b => b.style.display = full ? "none" : "flex");
+  const note = document.getElementById("rnote");
+  if (note) note.textContent = full
+    ? "Islam Sobhi recites the full surah as one audio file — ayah-by-ayah play is available with the other reciters."
+    : "";
+  const dl = document.getElementById("dlSurah");
+  if (dl) {
+    const saved = isSavedOffline(surah);
+    dl.textContent = saved ? "✓ Saved offline" : "⬇ Save offline";
+    dl.disabled = false;
+    dl.classList.toggle("saved", saved);
+  }
+}
+async function saveSurahOffline(surah, totalAyahs, btn) {
+  if (!("caches" in window) || !navigator.onLine && !isSavedOffline(surah)) { btn.textContent = "Offline unavailable"; return; }
+  const urls = surahAudioUrls(surah, totalAyahs);
+  btn.disabled = true;
+  let done = 0;
+  try {
+    const cache = await caches.open(AUDIO_CACHE);
+    const queue = urls.slice();
+    const worker = async () => {
+      while (queue.length) {
+        const u = queue.shift();
+        if (!(await cache.match(u))) {
+          const r = await fetch(u);
+          if (r.ok) await cache.put(u, r);
+        }
+        done++;
+        btn.textContent = `⬇ Saving ${done}/${urls.length}…`;
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(8, urls.length) }, worker));
+    const off = offlineMap();
+    off[offlineKey(surah)] = true;
+    localStorage.setItem("ilm_offline", JSON.stringify(off));
+    btn.textContent = "✓ Saved offline";
+    btn.classList.add("saved");
+  } catch (e) {
+    btn.textContent = "⬇ Save offline (failed — retry)";
+  }
+  btn.disabled = false;
+}
+
+// ---- Background / lock-screen playback (Media Session) ----
+function setMediaSession(surahName) {
+  if (!("mediaSession" in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: "Surah " + surahName,
+      artist: curRecInfo().name,
+      album: "Ilm Daily — Quran",
+      artwork: [{ src: new URL("icon-512.png", location.href).href, sizes: "512x512", type: "image/png" }]
+    });
+    navigator.mediaSession.setActionHandler("play", () => qAudio && qAudio.play());
+    navigator.mediaSession.setActionHandler("pause", () => qAudio && qAudio.pause());
+    navigator.mediaSession.setActionHandler("stop", () => stopQuranAudio());
+  } catch (e) {}
+}
+function wireMediaSession() {
+  if (!qAudio || !("mediaSession" in navigator)) return;
+  qAudio.addEventListener("play", () => { try { navigator.mediaSession.playbackState = "playing"; } catch (e) {} });
+  qAudio.addEventListener("pause", () => { try { navigator.mediaSession.playbackState = "paused"; } catch (e) {} });
+  qAudio.addEventListener("loadedmetadata", () => {
+    try { navigator.mediaSession.setPositionState({ duration: qAudio.duration, playbackRate: qAudio.playbackRate, position: qAudio.currentTime }); } catch (e) {}
+  });
+}
+
 function stopQuranAudio() {
   if (qAudio) { qAudio.pause(); delete qAudio; qAudio = null; }
   document.querySelectorAll(".ayah.playing").forEach(el => el.classList.remove("playing"));
   const b = document.getElementById("playSurah"); if (b) b.textContent = "▶ Play surah";
+  if ("mediaSession" in navigator) { try { navigator.mediaSession.playbackState = "none"; } catch (e) {} }
 }
-function playQuranFrom(surah, startAyah, totalAyahs) {
+function playQuranFrom(surah, startAyah, totalAyahs, surahName) {
   stopQuranAudio();
+  const full = !!curRecInfo().fullSurah;
   const play = (aNo) => {
     if (aNo > totalAyahs || !document.getElementById("playSurah")) { stopQuranAudio(); return; }
-    qAudio = new Audio(ayahURL(surah, aNo));
-    qAudio.dataset.a = aNo;
+    qAudio = new Audio(full ? surahAudioURL(surah) : ayahURL(surah, aNo));
+    qAudio.dataset.a = full ? "full" : aNo;
     document.querySelectorAll(".ayah.playing").forEach(el => el.classList.remove("playing"));
-    const row = document.querySelector(`.ayah[data-a="${aNo}"]`);
-    if (row) { row.classList.add("playing"); row.scrollIntoView({ block: "center", behavior: "smooth" }); }
-    document.getElementById("playSurah").textContent = `⏹ Stop (${aNo}/${totalAyahs})`;
-    qAudio.addEventListener("ended", () => play(aNo + 1));
+    if (!full) {
+      const row = document.querySelector(`.ayah[data-a="${aNo}"]`);
+      if (row) { row.classList.add("playing"); row.scrollIntoView({ block: "center", behavior: "smooth" }); }
+    }
+    document.getElementById("playSurah").textContent = full ? "⏹ Stop surah" : `⏹ Stop (${aNo}/${totalAyahs})`;
+    setMediaSession(surahName);
+    wireMediaSession();
+    qAudio.addEventListener("ended", () => full ? stopQuranAudio() : play(aNo + 1));
     qAudio.addEventListener("error", () => stopQuranAudio());
     qAudio.play().catch(() => stopQuranAudio());
   };
-  play(startAyah);
+  play(full ? 1 : startAyah);
 }
 
 // ================= SALAT ALARM =================
