@@ -13,6 +13,33 @@ self.addEventListener('activate', e => {
   );
 });
 
+// Prayer-time push: show the notification; tapping opens the app and plays the adhan
+self.addEventListener('push', e => {
+  let data = {};
+  try { data = e.data ? e.data.json() : {}; } catch (err) {}
+  const prayer = data.prayer || 'prayer';
+  const isTest = prayer === 'test';
+  const title = isTest ? 'Ilm Daily — test alarm' : 'Ilm Daily — it is time for ' + prayer.charAt(0).toUpperCase() + prayer.slice(1);
+  e.waitUntil(self.registration.showNotification(title, {
+    body: isTest ? 'Phone alarm works! You will be notified at every salah.' : 'Tap to listen to the adhan — حي على الصلاة',
+    icon: './icon-192.png',
+    badge: './icon-192.png',
+    vibrate: [400, 200, 400, 200, 600],
+    tag: 'ilm-salat-' + prayer + '-' + (isTest ? Date.now() : new Date().toISOString().slice(0, 10)),
+    renotify: !isTest,
+    data: { prayer: prayer === 'test' ? 'fajr' : prayer, url: './?adhan=' + encodeURIComponent(prayer) }
+  }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const prayer = (e.notification.data && e.notification.data.prayer) || 'prayer';
+  e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ws => {
+    const win = ws.find(w => new URL(w.url).origin === location.origin);
+    if (win) { win.focus(); win.postMessage({ playAdhan: prayer }); return; }
+    return clients.openWindow('./?adhan=' + encodeURIComponent(prayer));
+  }));
+});
+
 // Serve cached audio (offline downloads + anything played before). Handles Range
 // requests by slicing the cached file so audio elements can seek while offline.
 async function serveAudio(request) {

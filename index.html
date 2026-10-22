@@ -252,7 +252,28 @@ function tickCountdown(target) {
   if (!el) return;
   const upd = () => {
     const ms = target - new Date();
-    if (ms <= 0) { render("prayer"); return; }
+    if (ms <= 0) { // opened from a prayer notification — play the adhan immediately
+function playAdhanFromNotification(key) {
+  playAlarmSound();
+  try { navigator.vibrate && navigator.vibrate([400, 200, 400, 200, 600]); } catch (e) {}
+  const name = PRAYER_NAMES[key] || key;
+  const banner = document.createElement("div");
+  banner.style.cssText = "position:fixed;inset:auto 0 0 0;z-index:999;background:#C9A24B;color:#0f2121;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;gap:12px;font-weight:600";
+  banner.innerHTML = `<span>🔔 It is time for ${esc(name)} — <span dir="rtl">حي على الصلاة</span></span><button style="background:#0f2121;color:#C9A24B;border:none;border-radius:8px;padding:6px 14px;cursor:pointer">Dismiss</button>`;
+  banner.querySelector("button").addEventListener("click", () => banner.remove());
+  document.body.appendChild(banner);
+  setTimeout(() => banner.remove(), 60000);
+  history.replaceState(null, "", location.pathname);
+}
+const ADHAN_Q = new URLSearchParams(location.search).get("adhan");
+if (ADHAN_Q) setTimeout(() => playAdhanFromNotification(ADHAN_Q), 800);
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", e => {
+    if (e.data && e.data.playAdhan) playAdhanFromNotification(e.data.playAdhan);
+  });
+}
+
+render("prayer"); return; }
     const h = Math.floor(ms / 3600000), m = Math.floor(ms % 3600000 / 60000), s = Math.floor(ms % 60000 / 1000);
     el.textContent = `${h}h ${String(m).padStart(2,"0")}m ${String(s).padStart(2,"0")}s`;
   };
@@ -696,7 +717,7 @@ function playQuranFrom(surah, startAyah, totalAyahs, surahName) {
 const ALARM_KEY = "ilm_alarm";
 const ADHAN_URL = "https://www.islamcan.com/audio/adhan/azan1.mp3";
 let alarmCfg = JSON.parse(localStorage.getItem(ALARM_KEY) || "null") ||
-  { on: false, sound: "adhan", prayers: { fajr: true, dhuhr: true, asr: true, maghrib: true, isha: true } };
+  { on: false, push: false, sound: "adhan", prayers: { fajr: true, dhuhr: true, asr: true, maghrib: true, isha: true } };
 let alarmTimers = [];
 let adhanAudio = null;
 
@@ -715,7 +736,7 @@ function renderAlarmCard() {
         <span>${alarmCfg.on ? "ON" : "OFF"}</span>
       </label>
     </div>
-    <div style="margin-top:10px;font-size:13px;color:var(--muted)">Ring the adhan at each prayer time while the app is open.</div>
+    <div style="margin-top:10px;font-size:13px;color:var(--muted)">Ring the adhan at each prayer time. Turn on *Phone alarm* to also get a notification at every salah when the app is closed — tap it and the adhan plays.</div>
     <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
       ${Object.keys(pr).map(k => `<label class="achip ${pr[k] ? "on" : ""}" data-k="${k}" style="cursor:pointer">${pr[k] ? "✓ " : ""}${{fajr:"Fajr",dhuhr:"Dhuhr",asr:"Asr",maghrib:"Maghrib",isha:"Isha"}[k]}</label>`).join("")}
     </div>
@@ -726,6 +747,13 @@ function renderAlarmCard() {
       </select>
       <button class="btn ghost" id="alarmTest">Test ▶</button>
       <span id="alarmPerm" style="font-size:12px;color:var(--muted)">${perm === "granted" ? "Notifications ✓" : perm === "denied" ? "Notifications blocked" : perm === "unsupported" ? "" : "Tap ON to allow notifications"}</span>
+    </div>
+    <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="alarmPush" ${alarmCfg.push ? "checked" : ""} style="width:18px;height:18px;accent-color:var(--gold)">
+        <span>📱 Phone alarm (works with app closed)</span>
+      </label>
+      <span id="pushStatus" style="font-size:12px;color:var(--muted)">${alarmCfg.push ? "✓ ringing on this phone at every salah" : ""}</span>
     </div>`;
   $("#alarmOn").addEventListener("change", e => {
     alarmCfg.on = e.target.checked;
@@ -742,7 +770,86 @@ function renderAlarmCard() {
   }));
   $("#alarmSound").addEventListener("change", e => { alarmCfg.sound = e.target.value; saveAlarm(); });
   $("#alarmTest").addEventListener("click", () => ringAlarm("test"));
+  $("#alarmPush").addEventListener("change", e => {
+    alarmCfg.push = e.target.checked;
+    saveAlarm();
+    if (alarmCfg.push) enablePhoneAlarm(); else disablePhoneAlarm();
+    renderAlarmCard();
+  });
 }
+
+// ---- Phone alarm (Web Push — rings at every salah even when the app is closed) ----
+const PRAYER_KEYS = ["fajr", "dhuhr", "asr", "maghrib", "isha"];
+function urlB64ToUint8Array(b64) {
+  const pad = "=".repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+}
+async function apiPost(path, body) {
+  const res = await fetch(API + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": getKey() },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+async function enablePhoneAlarm() {
+  const st = document.getElementById("pushStatus");
+  const set = t => { const el = document.getElementById("pushStatus"); if (el && st) el.textContent = t; };
+  try {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) throw new Error("This browser can't do phone alarms");
+    if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
+      const p = await Notification.requestPermission();
+      if (p !== "granted") throw new Error("Notifications blocked");
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const { publicKey } = await (await fetch(API + "/v1/alarm/vapid")).json();
+    if (!publicKey) throw new Error("Push server not ready");
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(publicKey) });
+    }
+    const s = sub.toJSON();
+    await apiPost("/v1/alarm/subscribe", {
+      endpoint: s.endpoint, p256dh: s.keys.p256dh, auth: s.keys.auth,
+      lat: loc.lat, lng: loc.lng,
+      timezone: (Intl.DateTimeFormat().resolvedOptions().timeZone) || "UTC",
+      prayers: alarmCfg.prayers
+    });
+    localStorage.setItem("ilm_push_sub", sub.endpoint);
+    set("✓ ringing on this phone at every salah");
+  } catch (e) {
+    alarmCfg.push = false; saveAlarm();
+    set(e.message === "Notifications blocked" ? "Notifications blocked — allow them in browser settings" : "Phone alarm unavailable: " + e.message);
+    renderAlarmCard();
+  }
+}
+async function disablePhoneAlarm() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) { await apiPost("/v1/alarm/unsubscribe", { endpoint: sub.endpoint }); sub.unsubscribe(); }
+    localStorage.removeItem("ilm_push_sub");
+  } catch (e) {}
+}
+// keep location/prayer selection fresh whenever the app opens
+(async function syncPhoneAlarm() {
+  try {
+    if (!alarmCfg.push) return;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) { await enablePhoneAlarm(); return; }
+    const s = sub.toJSON();
+    await apiPost("/v1/alarm/subscribe", {
+      endpoint: s.endpoint, p256dh: s.keys.p256dh, auth: s.keys.auth,
+      lat: loc.lat, lng: loc.lng,
+      timezone: (Intl.DateTimeFormat().resolvedOptions().timeZone) || "UTC",
+      prayers: alarmCfg.prayers
+    });
+  } catch (e) {}
+})();
 
 function scheduleSalatAlarms(times) {
   alarmTimers.forEach(t => clearTimeout(t));
