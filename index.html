@@ -340,14 +340,60 @@ function savedSurahCount() {
   return Object.keys(off).filter(k => k.startsWith(curReciter() + "_")).length;
 }
 let quranDl = { running: false, cancel: false };
+async function storagePreflight(needMB) {
+  // ask the browser to keep our cache (prevents auto-eviction) and check free space
+  try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {}
+  if (navigator.storage && navigator.storage.estimate) {
+    try {
+      const est = await navigator.storage.estimate();
+      const freeMB = Math.max(0, Math.round(((est.quota || 0) - (est.usage || 0)) / 1048576));
+      if (est.quota && freeMB < needMB) return { ok: false, freeMB, needMB };
+    } catch (e) {}
+  }
+  return { ok: true };
+}
+// in-app dialog (confirm()/alert() are unreliable in installed PWAs)
+function appDialog(html, buttons) {
+  return new Promise(resolve => {
+    const ov = document.createElement("div");
+    ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+    const box = document.createElement("div");
+    box.style.cssText = "background:var(--card,#1f2929);color:#fff;border-radius:14px;max-width:420px;padding:20px;font-size:14px;line-height:1.6;box-shadow:0 8px 30px rgba(0,0,0,.5)";
+    box.innerHTML = `<div>${html}</div>`;
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:10px;margin-top:16px;flex-wrap:wrap";
+    buttons.forEach(([label, val, primary]) => {
+      const b = document.createElement("button");
+      b.className = "btn" + (primary ? "" : " ghost");
+      b.textContent = label;
+      b.onclick = () => { ov.remove(); resolve(val); };
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+    ov.appendChild(box);
+    ov.addEventListener("click", e => { if (e.target === ov) { ov.remove(); resolve(null); } });
+    document.body.appendChild(ov);
+  });
+}
 async function saveWholeQuranOffline(btn) {
   const status = document.getElementById("dlAllStatus");
   const set = t => { const el = document.getElementById("dlAllStatus"); if (el) el.textContent = t; };
   if (quranDl.running) { quranDl.cancel = true; btn.textContent = "Cancelling…"; return; }
+  if (!("caches" in window)) { set("This browser can't save offline audio — try Chrome"); return; }
   const reciterName = curRecInfo().name;
   const remaining = 114 - savedSurahCount();
-  if (remaining > 0 && !confirm(
-    `Download the whole Quran (${reciterName}) for offline use?\n\nAbout ${Math.max(1, Math.round(remaining * 7))} MB of audio will be downloaded once — you need internet and enough storage. Already-saved surahs are skipped. You can cancel anytime.`)) return;
+  if (remaining > 0) {
+    const needMB = Math.max(1, Math.round(remaining * 7));
+    const pre = await storagePreflight(needMB);
+    if (!pre.ok) {
+      await appDialog(`Not enough free storage in your browser.<br>Offline Quran needs about <b>${needMB} MB</b> free, but only <b>${pre.freeMB} MB</b> is available.<br><br>Tip: save individual surahs instead (open a surah → Save offline), or free up phone storage.`, [["OK", false, true]]);
+      return;
+    }
+    const go = await appDialog(
+      `Download the whole Quran (<b>${reciterName}</b>) for offline use?<br><br>About <b>${needMB} MB</b> of audio will be downloaded once — keep the app open until it finishes. Already-saved surahs are skipped. You can cancel anytime.`,
+      [["Download", true, true], ["Cancel", false, false]]);
+    if (!go) return;
+  }
   quranDl = { running: true, cancel: false };
   btn.textContent = "■ Cancel download";
   const cache = await caches.open(AUDIO_CACHE);
@@ -366,8 +412,8 @@ async function saveWholeQuranOffline(btn) {
           try {
             const r = await fetch(u);
             if (r.ok || r.type === "opaque") await cache.put(u, r);
-            else ok = false;
-          } catch (e) { ok = false; }
+            else { ok = false; set(`Problem: server returned ${r.status} for this surah`); }
+          } catch (e) { ok = false; set(`Problem: ${String(e.message || e).slice(0, 120)}`); }
         }
       }
       if (quranDl.cancel) break;
@@ -840,7 +886,9 @@ function applyReciterUI(surah) {
   }
 }
 async function saveSurahOffline(surah, totalAyahs, btn) {
-  if (!("caches" in window) || !navigator.onLine && !isSavedOffline(surah)) { btn.textContent = "Offline unavailable"; return; }
+  if (!("caches" in window)) { btn.textContent = "Offline unsupported here"; return; }
+  if (!navigator.onLine && !isSavedOffline(surah)) { btn.textContent = "You're offline — connect once"; return; }
+  try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {}
   const urls = surahAudioUrls(surah, totalAyahs);
   btn.disabled = true;
   let done = 0;
@@ -865,7 +913,7 @@ async function saveSurahOffline(surah, totalAyahs, btn) {
     btn.textContent = "✓ Saved offline";
     btn.classList.add("saved");
   } catch (e) {
-    btn.textContent = "⬇ Save offline (failed — retry)";
+    btn.textContent = `Failed: ${String(e.message || e).slice(0, 60)} — retry`;
   }
   btn.disabled = false;
 }
