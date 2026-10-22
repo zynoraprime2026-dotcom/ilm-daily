@@ -1,5 +1,5 @@
 // Ilm Daily service worker — offline shell + offline Quran audio + salat alarm support.
-const CACHE = 'ilm-daily-v4';
+const CACHE = 'ilm-daily-v5';
 const AUDIO_CACHE = 'ilm-quran-audio';
 const SHELL = ['./', './index.html', './stories.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
