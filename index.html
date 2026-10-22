@@ -494,7 +494,17 @@ const HADITH_BOOKS = {
   nasai:    { init: "N",  color: "#5e35b1", ar: "\u0633\u0646\u0646 \u0627\u0644\u0646\u0633\u0627\u0626\u064a" },
   abudawud: { init: "AD", color: "#1e88e5", ar: "\u0633\u0646\u0646 \u0623\u0628\u064a \u062f\u0627\u0648\u062f" },
   tirmidhi: { init: "T",  color: "#00897b", ar: "\u062c\u0627\u0645\u0639 \u0627\u0644\u062a\u0631\u0645\u0630\u064a" },
-  ibnmajah: { init: "IM", color: "#f4511e", ar: "\u0633\u0646\u0646 \u0627\u0628\u0646 \u0645\u0627\u062c\u0647" }
+  ibnmajah: { init: "IM", color: "#f4511e", ar: "\u0633\u0646\u0646 \u0627\u0628\u0646 \u0645\u0627\u062c\u0647" },
+  malik:    { init: "MM", color: "#6d4c41", ar: "\u0645\u0648\u0637\u0623 \u0645\u0627\u0644\u0643" },
+  ahmed:    { init: "MA", color: "#7cb342", ar: "\u0645\u0633\u0646\u062f \u0623\u062d\u0645\u062f" },
+  riyad:    { init: "RS", color: "#fb8c00", ar: "\u0631\u064a\u0627\u0636 \u0627\u0644\u0635\u0627\u0644\u062d\u064a\u0646" },
+  shamail:  { init: "SM", color: "#3949ab", ar: "\u0627\u0644\u0634\u0645\u0627\u0626\u0644 \u0627\u0644\u0645\u062d\u0645\u062f\u064a\u0629" },
+  adab:     { init: "AM", color: "#00acc1", ar: "\u0627\u0644\u0623\u062f\u0628 \u0627\u0644\u0645\u0641\u0631\u062f" },
+  bulugh:   { init: "BM", color: "#c0ca33", ar: "\u0628\u0644\u0648\u063a \u0627\u0644\u0645\u0631\u0627\u0645" },
+  mishkat:  { init: "MK", color: "#8e24aa", ar: "\u0645\u0634\u0643\u0627\u0629 \u0627\u0644\u0645\u0635\u0627\u0628\u064a\u062d" },
+  nawawi40: { init: "40", color: "#43a047", ar: "\u0627\u0644\u0623\u0631\u0628\u0639\u0648\u0646 \u0627\u0644\u0646\u0648\u0648\u064a\u0629" },
+  qudsi40:  { init: "40", color: "#5c6bc0", ar: "\u0627\u0644\u0623\u0631\u0628\u0639\u0648\u0646 \u0627\u0644\u0642\u062f\u0633\u064a\u0629" },
+  dehlawi40:{ init: "40", color: "#f06292", ar: "\u0623\u0631\u0628\u0639\u0648\u0646 \u0627\u0644\u0634\u0627\u0647 \u0648\u0644\u064a \u0627\u0644\u0644\u0647" }
 };
 const hbMeta = s => HADITH_BOOKS[s] || { init: (s[0] || "?").toUpperCase(), color: "#88807a", ar: "" };
 function hadithCard(h, open) {
@@ -523,7 +533,7 @@ function renderHadith(view) {
   (async () => {
     try {
       const colls = await api("/v1/hadith/collections");
-      const order = ["bukhari", "muslim", "nasai", "abudawud", "tirmidhi", "ibnmajah"];
+      const order = ["bukhari", "muslim", "nasai", "abudawud", "tirmidhi", "ibnmajah", "malik", "ahmed", "riyad", "shamail", "adab", "bulugh", "mishkat", "nawawi40", "qudsi40", "dehlawi40"];
       colls.sort((a, b) => order.indexOf(a.slug) - order.indexOf(b.slug));
       $("#hbooks").innerHTML = colls.map(c => {
         const m = hbMeta(c.slug);
