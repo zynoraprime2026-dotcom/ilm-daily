@@ -631,12 +631,33 @@ const SCHOLARS = [
     works: "al-Arba'in, Hujjat Allah al-Baligha, Persian translation of the Quran" }
 ];
 function scholarByBook(slug) { return SCHOLARS.find(s => s.books.includes(slug)); }
+let scholarsCache = null;
+async function getScholars() {
+  if (scholarsCache) return scholarsCache;
+  try {
+    const data = await api("/v1/hadith/scholars");
+    if (data && data.scholars && data.scholars.length) {
+      scholarsCache = data.scholars.map(s => ({
+        id: s.id, name: s.name, ar: s.name_arabic, full: s.full_name,
+        era: s.era, home: s.home, color: s.color || "#eab308",
+        books: s.collections, bio: s.biography, works: s.major_works
+      }));
+      return scholarsCache;
+    }
+  } catch (e) { /* offline or API unavailable — fall back to the embedded list */ }
+  return SCHOLARS;
+}
 function renderScholars(view, focusId) {
   view.innerHTML = `<button class="back" id="scBack">← All books</button>
     <div class="hgrid-head">Scholars of the Library</div>
     <p class="note">The compilers of the collections in this app — their lives, teachers and works.</p>
-    <div id="scards"></div>`;
+    <div id="scards"><div class="loading">Loading…</div></div>`;
   $("#scBack").addEventListener("click", () => renderHadith(view));
+  getScholars().then(list => renderScholarCards(view, list, focusId));
+}
+function renderScholarCards(view, SCHOLARS, focusId) {
+  const scards = document.getElementById("scards");
+  if (!scards) return;
   $("#scards").innerHTML = SCHOLARS.map(s => `
     <div class="ayah hcard scholar-card" id="sch-${s.id}" style="cursor:default">
       <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px">
