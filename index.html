@@ -282,7 +282,12 @@ render("prayer"); return; }
   window.__cd = setInterval(upd, 1000);
 }
 async function renderSurahList(view) {
-  view.innerHTML = `<div class="searchbar"><input id="qsearch" placeholder="Search surah — name or number" /></div><div id="qlist"><div class="loading">Loading surahs…</div></div>`;
+  view.innerHTML = `<div class="searchbar"><input id="qsearch" placeholder="Search surah — name or number" /></div>
+    <div class="card" style="margin:10px 12px;padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn ghost" id="dlAll">⬇ Save whole Quran offline</button>
+      <span id="dlAllStatus" style="font-size:12px;color:var(--muted)">${savedSurahCount()} of 114 surahs saved offline</span>
+    </div>
+    <div id="qlist"><div class="loading">Loading surahs…</div></div>`;
   try {
     if (!surahsCache) {
       surahsCache = await api("/v1/quran/surahs");
@@ -305,8 +310,67 @@ async function renderSurahList(view) {
     };
     draw();
     $("#qsearch").addEventListener("input", e => draw(e.target.value));
+    const dlBtn = document.getElementById("dlAll");
+    if (dlBtn) dlBtn.addEventListener("click", () => saveWholeQuranOffline(dlBtn));
   } catch (e) {
     $("#qlist").innerHTML = `<div class="empty">Could not load surahs: ${esc(e.message)}</div>`;
+  }
+}
+
+// ---- Save the whole Quran offline (resumable, cancellable, skips saved surahs) ----
+function savedSurahCount() {
+  const off = offlineMap();
+  return Object.keys(off).filter(k => k.startsWith(curReciter() + "_")).length;
+}
+let quranDl = { running: false, cancel: false };
+async function saveWholeQuranOffline(btn) {
+  const status = document.getElementById("dlAllStatus");
+  const set = t => { const el = document.getElementById("dlAllStatus"); if (el) el.textContent = t; };
+  if (quranDl.running) { quranDl.cancel = true; btn.textContent = "Cancelling…"; return; }
+  const reciterName = curRecInfo().name;
+  const remaining = 114 - savedSurahCount();
+  if (remaining > 0 && !confirm(
+    `Download the whole Quran (${reciterName}) for offline use?\n\nAbout ${Math.max(1, Math.round(remaining * 7))} MB of audio will be downloaded once — you need internet and enough storage. Already-saved surahs are skipped. You can cancel anytime.`)) return;
+  quranDl = { running: true, cancel: false };
+  btn.textContent = "■ Cancel download";
+  const cache = await caches.open(AUDIO_CACHE);
+  let done = 0, failed = 0;
+  try {
+    for (const s of surahsCache) {
+      if (quranDl.cancel) break;
+      const key = offlineKey(s.number);
+      const off = offlineMap();
+      if (off[key]) { done++; continue; }
+      const urls = surahAudioUrls(s.number, s.ayah_count);
+      let ok = true;
+      for (const u of urls) {
+        if (quranDl.cancel) break;
+        if (!(await cache.match(u))) {
+          try {
+            const r = await fetch(u);
+            if (r.ok || r.type === "opaque") await cache.put(u, r);
+            else ok = false;
+          } catch (e) { ok = false; }
+        }
+      }
+      if (quranDl.cancel) break;
+      if (ok) {
+        const off = offlineMap();
+        off[key] = true;
+        localStorage.setItem("ilm_offline", JSON.stringify(off));
+      } else failed++;
+      done++;
+      set(`${done}/114 surahs saved${failed ? " · " + failed + " failed (will retry next run)" : ""} — tap surahs meanwhile, download continues`);
+    }
+  } finally {
+    const cancelled = quranDl.cancel;
+    quranDl = { running: false, cancel: false };
+    btn.textContent = "⬇ Save whole Quran offline";
+    set(cancelled
+      ? `Paused at ${savedSurahCount()}/114 — tap again to resume`
+      : savedSurahCount() === 114
+        ? "✓ Whole Quran saved offline — works without internet"
+        : `${savedSurahCount()}/114 saved — tap again to retry the failed ones`);
   }
 }
 async function renderSurah(view, n) {
