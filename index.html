@@ -122,6 +122,8 @@
 
 #dlSurah.saved{border-color:#6d837b;color:#9fc4ab}
 .rnote{color:var(--muted);font-size:12px;margin-top:6px;line-height:1.5}
+#installBar{display:none;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;padding:12px 14px;margin-bottom:14px}
+#installBar .ib-close{position:static;inset-inline-end:auto;width:28px;height:28px;flex:none}
 </style>
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#0f2121">
@@ -147,6 +149,11 @@
     <button class="tab" data-tab="hadith">Hadith</button>
     <button class="tab" data-tab="stories">Stories</button>
     <button class="tab" data-tab="duas">Du'as</button>
+  </div>
+  <div id="installBar" class="card">
+    <span style="font-size:13px;color:var(--muted);flex:1;min-width:180px" id="installMsg">Install Ilm Daily on your phone — works offline, opens full screen.</span>
+    <button class="btn" id="installBtn" style="display:none">⬇ Install app</button>
+    <button class="aplay ib-close" id="installClose" title="Dismiss">✕</button>
   </div>
   <div id="view"></div>
   <footer>Ilm Daily · built on the Ilm API · ilm-api.vercel.app</footer>
@@ -517,6 +524,47 @@ function renderStory(view, id) {
 
 render("prayer");
 
+
+// ================= INSTALL TO PHONE (PWA) =================
+(function () {
+  const bar = document.getElementById("installBar");
+  const msg = document.getElementById("installMsg");
+  const btn = document.getElementById("installBtn");
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  if (!bar || standalone || localStorage.getItem("ilm_install_dismissed")) return;
+  let promptEvent = null;
+  window.addEventListener("beforeinstallprompt", e => {
+    e.preventDefault();
+    promptEvent = e;
+    btn.style.display = "inline-block";
+    bar.style.display = "flex";
+  });
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (ua.includes("Macintosh") && navigator.maxTouchPoints > 1);
+  if (ios) {
+    msg.textContent = "To install on iPhone/iPad: tap Share (⬆️) in Safari, then “Add to Home Screen”.";
+    bar.style.display = "flex";
+  }
+  btn.addEventListener("click", async () => {
+    if (!promptEvent) return;
+    btn.disabled = true;
+    promptEvent.prompt();
+    const choice = await promptEvent.userChoice;
+    if (choice && choice.outcome === "accepted") {
+      bar.style.display = "none";
+      localStorage.setItem("ilm_install_dismissed", "1");
+    }
+    btn.disabled = false;
+  });
+  document.getElementById("installClose").addEventListener("click", () => {
+    bar.style.display = "none";
+    localStorage.setItem("ilm_install_dismissed", "1");
+  });
+  window.addEventListener("appinstalled", () => {
+    bar.style.display = "none";
+    localStorage.setItem("ilm_install_dismissed", "1");
+  });
+})();
 
 // ================= QURAN AUDIO (everyayah.com + mp3quran.net CDNs) =================
 const RECITERS = {
