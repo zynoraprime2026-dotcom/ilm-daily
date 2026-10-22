@@ -566,11 +566,110 @@ function hadithCard(h, open) {
       <div style="font-size:11px;color:var(--muted);margin-top:6px">Tap to ${open ? "collapse" : "show Arabic & full text"}</div>
     </div>`;
 }
+
+// ---- Scholars of the hadith library ----
+const SCHOLARS = [
+  { id: "bukhari", name: "Imam al-Bukhari", ar: "الإمام البخاري", full: "Muhammad ibn Isma'il al-Bukhari",
+    era: "194 – 256 AH (810 – 870 CE)", home: "Bukhara, Central Asia", color: "#f43f5e",
+    books: ["bukhari", "adab"],
+    bio: "The most celebrated hadith master in Islamic history. After memorising the Quran as a boy, he devoted his youth to seeking hadith, travelling across Khurasan, Iraq, the Hijaz, Syria and Egypt and learning from over a thousand teachers. He spent sixteen years compiling his Sahih, selecting around 7,000 narrations from roughly 600,000 he had memorised, and is said to have performed two rakahs of prayer before writing each hadith. His contemporaries called him 'the Commander of the Faithful in Hadith'. He also compiled al-Adab al-Mufrad on the Prophet's manners and character.",
+    works: "Sahih al-Bukhari, al-Adab al-Mufrad, al-Tarikh al-Kabir" },
+  { id: "muslim", name: "Imam Muslim", ar: "الإمام مسلم", full: "Muslim ibn al-Hajjaj an-Naysaburi",
+    era: "204 – 261 AH (815 – 875 CE)", home: "Nishapur, Persia", color: "#d946ef",
+    books: ["muslim"],
+    bio: "Born in Nishapur to a prosperous family, he gave his wealth to the pursuit of hadith and travelled to Iraq, the Hijaz, Syria and Egypt. He studied closely under al-Bukhari and organised his Sahih on al-Bukhari's principles of arrangement, grading each chain and omitting chains he judged defective. His work is admired for its precise ordering: each chapter gathers every chain of the same hadith together. He spent fifteen years on it, reviewing it with scholars of Nishapur, and was buried in his hometown.",
+    works: "Sahih Muslim" },
+  { id: "nasai", name: "Imam an-Nasa'i", ar: "الإمام النسائي", full: "Ahmad ibn Shu'ayb an-Nasa'i",
+    era: "215 – 303 AH (830 – 915 CE)", home: "Nasa, Khurasan (died in Makkah)", color: "#8b5cf6",
+    books: ["nasai"],
+    bio: "The last of the four great Sunan compilers and a master of hadith defects (ilal). He settled in Egypt, where students travelled from across the Muslim world to hear him, and made hajj late in life. After speaking truth to power in Damascus about the virtues of Ali, he was beaten by partisans and died from his injuries, according to most reports in Makkah. His Sunan al-Mujtaba, the abridgement of his larger collection, was praised by scholars as the most carefully graded of the four Sunan.",
+    works: "as-Sunan al-Kubra, Sunan an-Nasa'i (al-Mujtaba), Kitab al-Khasais" },
+  { id: "abudawud", name: "Imam Abu Dawud", ar: "الإمام أبو داود", full: "Sulayman ibn al-Ash'ath as-Sijistani",
+    era: "202 – 275 AH (817 – 889 CE)", home: "Sijistan, Persia", color: "#3b82f6",
+    books: ["abudawud"],
+    bio: "A companion-student of Imam Ahmad ibn Hanbal, Abu Dawud travelled widely for hadith and once said he had written down half a million narrations. His Sunan gathers around 5,200 hadiths selected for their legal weight, arranged by fiqh chapters so that a jurist can find the Sunnah's guidance on any matter of practice. He openly flagged the weak narrations he included for a purpose, telling his son that anything he did not flag should be treated as sound. He was known for simplicity and detachment from the world.",
+    works: "Sunan Abi Dawud, Kitab al-Marasil" },
+  { id: "tirmidhi", name: "Imam at-Tirmidhi", ar: "الإمام الترمذي", full: "Muhammad ibn Isa at-Tirmidhi",
+    era: "209 – 279 AH (824 – 892 CE)", home: "Tirmidh, Transoxiana", color: "#f59e0b",
+    books: ["tirmidhi", "shamail"],
+    bio: "Blind in his later years, at-Tirmidhi was a student of al-Bukhari and Abu Dawud and absorbed their rigorous method. His Jami' was the first collection to record each hadith together with the scholars' grading, the narrators' names, and a note on the fiqh rulings derived from it, which made it a bridge between hadith and law. His other gift to this library is ash-Shamail al-Muhammadiyah, a portrait of the Prophet's ﷺ appearance, dress, manner of eating and speech, gathering what the companions closest to him observed.",
+    works: "Jami' at-Tirmidhi, ash-Shamail al-Muhammadiyah, al-Ilal al-Kabir" },
+  { id: "ibnmajah", name: "Imam Ibn Majah", ar: "الإمام ابن ماجه", full: "Muhammad ibn Yazid ibn Majah al-Qazwini",
+    era: "209 – 273 AH (824 – 887 CE)", home: "Qazvin, Persia", color: "#10b981",
+    books: ["ibnmajah"],
+    bio: "A Persian scholar of Qazvin who travelled to Iraq, the Hijaz and Egypt in pursuit of hadith. His Sunan contains about 4,300 narrations, and his inclusion later completed the set of six canonical books, though earlier scholars sometimes placed al-Muwatta or Sunan ad-Darimi in its place. He also wrote a book of history, at-Tarikh, covering the narrators of hadith up to his time. He is remembered for his careful attention to the chains of what he recorded.",
+    works: "Sunan Ibn Majah, at-Tarikh, at-Tafsir" },
+  { id: "malik", name: "Imam Malik ibn Anas", ar: "الإمام مالك بن أنس", full: "Malik ibn Anas al-Asbahi",
+    era: "93 – 179 AH (711 – 795 CE)", home: "Madinah", color: "#06b6d4",
+    books: ["malik"],
+    bio: "The Imam of Madinah, the city of the Prophet ﷺ, where he spent his whole life teaching in the mosque near the Prophet's grave. His Muwatta is among the earliest books of Islamic law and hadith, arranging sound practice (amal of Madinah) with the reports behind it, and Imam ash-Shafi'i called it the most truthful book after the Quran. Imam Malik refused to give legal rulings until seventy scholars affirmed he was worthy of it, and he endured flogging rather than bend his conviction before the Abbasid caliph. He taught Imam ash-Shafi'i among thousands of others.",
+    works: "al-Muwatta" },
+  { id: "ahmed", name: "Imam Ahmad ibn Hanbal", ar: "الإمام أحمد بن حنبل", full: "Ahmad ibn Hanbal ash-Shaybani",
+    era: "164 – 241 AH (780 – 855 CE)", home: "Baghdad", color: "#ef4444",
+    books: ["ahmed"],
+    bio: "Founder of the Hanbali school and one of the most steadfast figures of Islamic history. During the Mihna, the inquisition demanding he profess the Quran as created, he endured imprisonment and flogging under three caliphs and never yielded, which won him the people's heart in Baghdad. His Musnad arranges over 27,000 narrations (about 40,000 with chains) by the first companion in each chain, a format designed for jurists to trace evidence. He taught Abu Dawud, and his method shaped at-Tirmidhi and al-Bukhari's generation.",
+    works: "al-Musnad, Kitab az-Zuhd, ar-Radd ala az-Zanadiqa" },
+  { id: "nawawi", name: "Imam an-Nawawi", ar: "الإمام النووي", full: "Yahya ibn Sharaf an-Nawawi",
+    era: "631 – 676 AH (1233 – 1277 CE)", home: "Nawa, Syria", color: "#14b8a6",
+    books: ["riyad", "nawawi40"],
+    bio: "A Shafi'i scholar of Damascus who ate little and slept little, devoting himself to teaching and writing for about two decades. His commentary on Sahih Muslim became its standard explanation, and his Minhaj at-Talibin became the Shafi'i school's core text. For this library he gave two beloved works: Riyad as-Salihin, the Gardens of the Righteous, arranged by the virtues of the Prophet's ﷺ guidance for daily character, and the Forty Hadith, whose selection covers the whole religion so completely that scholars said whoever learns them has learned half of religious knowledge. He never married and died at 45.",
+    works: "Riyad as-Salihin, al-Arba'in an-Nawawiyyah, Sharh Sahih Muslim, Minhaj at-Talibin" },
+  { id: "ibnhajar", name: "Ibn Hajar al-Asqalani", ar: "ابن حجر العسقلاني", full: "Ahmad ibn Ali ibn Hajar al-Asqalani",
+    era: "773 – 852 AH (1372 – 1449 CE)", home: "Cairo, Egypt", color: "#a855f7",
+    books: ["bulugh"],
+    bio: "Raised in Makkah and Cairo after his scholar parents died in his childhood, he rose to become chief judge of Egypt and the hadith master of his age. His Fath al-Bari, the commentary on Sahih al-Bukhari, took about a quarter-century and is considered the crown of hadith scholarship; his honorific title, Commander of the Faithful in Hadith, echoes al-Bukhari's own. Bulugh al-Maram, his compact collection of hadith evidences for fiqh, records each narration's source and grade and remains a first reference for students of law. He lost his sight late in life but kept dictating his works.",
+    works: "Fath al-Bari, Bulugh al-Maram, Nuzhat an-Nazar, Tabsir al-Muntabih" },
+  { id: "tabrizi", name: "Khatib at-Tabrizi", ar: "الخطيب التبريزي", full: "Muhammad ibn Abdallah al-Khatib at-Tabrizi",
+    era: "d. ca. 737 AH (ca. 1336 CE)", home: "Tabriz, Persia", color: "#eab308",
+    books: ["mishkat"],
+    bio: "A Persian scholar who taught in Damascus and Tabriz. His Mishkat al-Masabih, the Niche of Lamps, expanded an earlier collection by Imam Baghdadi's Masabih as-Sunnah: he reorganised it, added full chains of transmission with gradings, and brought it to over 4,400 hadiths drawn from the six canonical books and others. It became one of the most widely taught hadith anthologies in the world, valued for gathering the essential Sunnah in a single readable volume.",
+    works: "Mishkat al-Masabih, Sharh al-Masabih" },
+  { id: "dehlawi", name: "Shah Waliullah Dehlawi", ar: "شاه ولي الله الدهلوي", full: "Qutb ad-Din Ahmad ibn Abd ar-Rahim",
+    era: "1114 – 1176 AH (1703 – 1762 CE)", home: "Delhi, India", color: "#84cc16",
+    books: ["dehlawi40"],
+    bio: "A scholar, reformer and hadith master of Mughal Delhi who revived hadith study in India at a time when jurisprudential rigidity had dimmed it. He made hajj, studied under the scholars of Madinah, then taught hadith in Delhi to enormous gatherings, training a generation that carried his revival across the subcontinent. His Arba'in, the Forty Hadith, selects narrations spanning every dimension of faith. He also produced the first complete Persian translation of the Quran for the Muslims of India, and his Hujjat Allah al-Baligha reconciled hadith, law and wisdom.",
+    works: "al-Arba'in, Hujjat Allah al-Baligha, Persian translation of the Quran" }
+];
+function scholarByBook(slug) { return SCHOLARS.find(s => s.books.includes(slug)); }
+function renderScholars(view, focusId) {
+  view.innerHTML = `<button class="back" id="scBack">← All books</button>
+    <div class="hgrid-head">Scholars of the Library</div>
+    <p class="note">The compilers of the collections in this app — their lives, teachers and works.</p>
+    <div id="scards"></div>`;
+  $("#scBack").addEventListener("click", () => renderHadith(view));
+  $("#scards").innerHTML = SCHOLARS.map(s => `
+    <div class="ayah hcard scholar-card" id="sch-${s.id}" style="cursor:default">
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px">
+        <div class="hb-avatar" style="background:${s.color};flex:none">${esc(s.name.split(" ").slice(-1)[0].slice(0,2))}</div>
+        <div>
+          <div style="font-weight:700">${esc(s.name)}</div>
+          <div class="ar" style="font-size:17px">${esc(s.ar)}</div>
+        </div>
+      </div>
+      <div class="hadith-meta">
+        <span class="pill">${esc(s.era)}</span>
+        <span class="pill">${esc(s.home)}</span>
+      </div>
+      <div style="margin:10px 0;font-size:13px;color:var(--text)">${esc(s.bio)}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Major works: ${esc(s.works)}</div>
+      <div class="hadith-meta">
+        ${s.books.map(b => `<button class="btn ghost sc-book" data-b="${b}" style="font-size:12px;padding:5px 10px">📖 ${esc(hbMeta(b).name || b)}</button>`).join("")}
+      </div>
+    </div>`).join("");
+  $("#scards").querySelectorAll(".sc-book").forEach(el =>
+    el.addEventListener("click", () => renderHadithBook(view, el.dataset.b)));
+  if (focusId) {
+    const el = document.getElementById("sch-" + focusId);
+    if (el) { el.scrollIntoView({ behavior: "smooth" }); el.style.outline = "2px solid #eab308"; setTimeout(() => el.style.outline = "", 3000); }
+  }
+}
+
 function renderHadith(view) {
   view.innerHTML = `
     <div class="searchbar">
       <input id="hsearch" placeholder="Search the hadith library by keyword" />
       <button class="btn" id="hgo">Search</button>
+      <button class="btn ghost" id="hScholars">Scholars</button>
     </div>
     <div id="hresults">
       <div class="hgrid-head">All Books</div>
@@ -625,6 +724,7 @@ function renderHadith(view) {
   };
   $("#hgo").addEventListener("click", run);
   $("#hsearch").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+  $("#hScholars").addEventListener("click", () => renderScholars(view));
 }
 async function renderHadithBook(view, slug, page = 1) {
   const m = hbMeta(slug);
