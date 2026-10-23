@@ -250,7 +250,7 @@ async function renderPrayer(view) {
         <span class="ptime">${fmtTime(times[k])}</span>
       </div>`).join("");
     const nextLine = next
-      ? `<div class="card" style="text-align:center">
+      ? `<div class="card" style="text-align:center" data-next="${PRAYER_NAMES[next.key]}">
            <div style="color:var(--muted);font-size:13px">Next prayer: <b style="color:var(--gold)">${PRAYER_NAMES[next.key]}</b></div>
            <div style="font-size:32px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums" id="countdown">—</div>
          </div>`
@@ -293,18 +293,61 @@ if ("serviceWorker" in navigator) {
 render("prayer"); return; }
     const h = Math.floor(ms / 3600000), m = Math.floor(ms % 3600000 / 60000), s = Math.floor(ms % 60000 / 1000);
     el.textContent = `${h}h ${String(m).padStart(2,"0")}m ${String(s).padStart(2,"0")}s`;
+    const nm = el.closest(".card") ? (el.closest(".card").dataset.next || "") : "";
+    if (nm) document.title = `${nm} in ${h}h ${String(m).padStart(2,"0")}m · Ilm Daily`;
   };
   upd();
   clearInterval(window.__cd);
   window.__cd = setInterval(upd, 1000);
 }
+// ---- Quran reading progress, bookmarks & sharing ----
+const MARKS_KEY = "ilm_marks", LAST_KEY = "ilm_last_read", STREAK_KEY = "ilm_streak";
+const quranMarks = () => JSON.parse(localStorage.getItem(MARKS_KEY) || "[]");
+const saveQuranMarks = m => localStorage.setItem(MARKS_KEY, JSON.stringify(m));
+function markStreak() {
+  const t = new Date(); const day = t.toISOString().slice(0, 10);
+  const st = JSON.parse(localStorage.getItem(STREAK_KEY) || '{"cur":0,"best":0,"last":""}');
+  if (st.last === day) return st;
+  if (st.last === new Date(t.getTime() - 86400000).toISOString().slice(0, 10)) st.cur += 1; else st.cur = 1;
+  st.last = day; st.best = Math.max(st.best, st.cur);
+  localStorage.setItem(STREAK_KEY, JSON.stringify(st));
+  return st;
+}
+function noteLastRead(n, meta) {
+  markStreak();
+  localStorage.setItem(LAST_KEY, JSON.stringify({ surah: n, name: meta ? meta.name_english : "Surah " + n, ts: Date.now() }));
+}
+function shareText(text) {
+  if (navigator.share) { navigator.share({ text }).catch(() => {}); return; }
+  const url = "https://wa.me/?text=" + encodeURIComponent(text);
+  window.open(url, "_blank");
+}
 async function renderSurahList(view) {
+  const last = JSON.parse(localStorage.getItem(LAST_KEY) || "null");
+  const marks = quranMarks();
+  const st = JSON.parse(localStorage.getItem(STREAK_KEY) || '{"cur":0,"best":0,"last":""}');
+  const streakHTML = st.cur > 0 ? `<span class="pill" title="Best: ${st.best} days">🔥 ${st.cur}-day reading streak</span>` : "";
+  const lastHTML = last ? `<div class="card" style="margin:10px 12px;padding:12px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div><b style="color:var(--gold)">📖 Continue reading</b><div style="font-size:13px;color:var(--muted);margin-top:2px">${esc(last.name)} · last opened ${Math.max(1, Math.round((Date.now() - last.ts) / 3600000))}h ago</div></div>
+      <button class="btn" id="resumeRead">Open ${last.surah}</button>
+    </div>` : "";
+  const marksHTML = marks.length ? `<div class="card" style="margin:10px 12px;padding:12px 14px">
+      <b style="color:var(--gold)">⭐ Bookmarked ayahs (${marks.length})</b>
+      ${marks.map(m => `<div class="bmark" data-s="${m.surah}" style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer">
+        <span style="font-size:13px">${esc((m.text || "").slice(0, 70))}${(m.text || "").length > 70 ? "…" : ""}</span>
+        <span class="pill">${esc(m.name)} ${m.surah}:${m.ayah}</span></div>`).join("")}
+    </div>` : "";
   view.innerHTML = `<div class="searchbar"><input id="qsearch" placeholder="Search surah — name or number" /></div>
     <div class="card" style="margin:10px 12px;padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <button class="btn ghost" id="dlAll">⬇ Save whole Quran offline</button>
       <span id="dlAllStatus" style="font-size:12px;color:var(--muted)">${savedSurahCount()} of 114 surahs saved offline</span>
+      ${streakHTML}
     </div>
+    ${lastHTML}${marksHTML}
     <div id="qlist"><div class="loading">Loading surahs…</div></div>`;
+  const rr = document.getElementById("resumeRead");
+  if (rr) rr.addEventListener("click", () => renderSurah(view, last.surah));
+  view.querySelectorAll(".bmark").forEach(el => el.addEventListener("click", () => renderSurah(view, +el.dataset.s)));
   try {
     if (!surahsCache) {
       surahsCache = await api("/v1/quran/surahs");
@@ -458,13 +501,19 @@ async function renderSurah(view, n) {
           <button class="btn ghost" id="dlSurah">⬇ Save offline</button>
         </div>
       </div>
-      ${data.ayahs.map(a => `
+      ${data.ayahs.map(a => {
+        const mk = quranMarks().some(m => m.surah === n && m.ayah === a.ayah_number);
+        return `
         <div class="ayah" data-a="${a.ayah_number}">
           <button class="aplay" title="Play this ayah" data-p="${a.ayah_number}">▶</button>
           <span class="num">${a.ayah_number}</span>
           <div class="ar">${a.text_arabic}</div>
           <div class="tr">${esc(a.translation)}</div>
-        </div>`).join("")}
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn ghost amark" data-a="${a.ayah_number}" style="font-size:12px;padding:4px 10px">${mk ? "★ Bookmarked" : "☆ Bookmark"}</button>
+            <button class="btn ghost ashare" data-a="${a.ayah_number}" style="font-size:12px;padding:4px 10px">↗ Share</button>
+          </div>
+        </div>`;}).join("")}
       <div class="rnote" id="rnote"></div>
       <p class="note">Tap any ayah for word-by-word Arabic, transliteration, grammar — and tafsir (Ibn Kathir / Maarif-ul-Quran).</p>`;
     view.querySelectorAll(".ayah").forEach(el => el.addEventListener("click", () => toggleWords(el, n, +el.dataset.a)));
@@ -477,6 +526,25 @@ async function renderSurah(view, n) {
       saveSurahOffline(n, meta ? meta.ayah_count : data.ayahs.length, $("#dlSurah"));
     });
     applyReciterUI(n);
+    noteLastRead(n, meta);
+    view.querySelectorAll(".amark").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      const ay = +b.dataset.a, marks = quranMarks();
+      const ix = marks.findIndex(m => m.surah === n && m.ayah === ay);
+      if (ix >= 0) { marks.splice(ix, 1); b.textContent = "☆ Bookmark"; }
+      else {
+        const row = b.closest(".ayah"), tr = row.querySelector(".tr").textContent;
+        marks.unshift({ surah: n, name: meta ? meta.name_english : "Surah " + n, ayah: ay, text: tr.slice(0, 140) });
+        b.textContent = "★ Bookmarked";
+      }
+      saveQuranMarks(marks);
+    }));
+    view.querySelectorAll(".ashare").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      const row = b.closest(".ayah");
+      const text = `${row.querySelector(".ar").textContent}\n\n"${row.querySelector(".tr").textContent}"\n— Quran ${meta ? meta.name_english + " " : ""}${n}:${b.dataset.a} · via Ilm Daily`;
+      shareText(text);
+    }));
     $("#playSurah").addEventListener("click", () => {
       const btn = $("#playSurah");
       if (qAudio) { stopQuranAudio(); return; }
@@ -563,8 +631,28 @@ function hadithCard(h, open) {
       </div>
       <div class="hc-en hc-clamp"><b>${esc(h.narrator || "")}</b>: ${esc(h.text_english || "")}</div>
       ${h.text_arabic ? `<div class="hc-ar">${h.text_arabic}</div>` : ""}
-      <div style="font-size:11px;color:var(--muted);margin-top:6px">Tap to ${open ? "collapse" : "show Arabic & full text"}</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+        <button class="btn ghost hshare" style="font-size:11px;padding:3px 9px">↗ Share</button>
+        <span style="font-size:11px;color:var(--muted)">Tap to ${open ? "collapse" : "show Arabic & full text"}</span>
+      </div>
     </div>`;
+}
+
+function wireHadithShare(scope) {
+  (scope || document).querySelectorAll(".hshare").forEach(b => {
+    if (b.dataset.wired) return; b.dataset.wired = "1";
+    b.addEventListener("click", e => {
+      e.stopPropagation();
+      const card = b.closest(".hcard");
+      if (!card) return;
+      const en = card.querySelector(".hc-en").textContent;
+      const ar = card.querySelector(".hc-ar");
+      const pills = card.querySelectorAll(".hadith-meta .pill");
+      const ref = pills[0] ? pills[0].textContent.replace("No. ", "#") : "";
+      const book = pills[1] ? pills[1].textContent : "Hadith";
+      shareText(`"${en}"${ar && ar.textContent ? `\n\n${ar.textContent}` : ""}\n\n${book} ${ref} · via Ilm Daily`);
+    });
+  });
 }
 
 // ---- Scholars of the hadith library ----
@@ -735,8 +823,14 @@ function renderHadith(view) {
               </div>
               ${h.text_arabic ? `<div class="ar" style="font-size:19px;margin-bottom:8px">${h.text_arabic}</div>` : ""}
               <div class="tr" style="color:var(--text)">Narrated ${esc(h.narrator)}: ${esc(h.text_english)}</div>
+              <div style="margin-top:6px"><button class="btn ghost hshare-s" data-b="${esc(h.collection)}" data-r="${esc(h.hadith_number)}" style="font-size:11px;padding:3px 9px">↗ Share</button></div>
             </div>`).join("") +
           `<div style="text-align:center;margin:14px"><button class="btn ghost" id="hBack">← Back to books</button></div>`;
+      view.querySelectorAll(".hshare-s").forEach(b => b.addEventListener("click", () => {
+        const card = b.closest(".hcard");
+        const ar = card.querySelector(".ar");
+        shareText(`"${card.querySelector(".tr").textContent.replace(/^Narrated /, "")}"${ar && ar.textContent ? `\n\n${ar.textContent}` : ""}\n\n${b.dataset.b} #${b.dataset.r} · via Ilm Daily`);
+      }));
       const b = document.getElementById("hBack");
       if (b) b.addEventListener("click", () => renderHadith(view));
     } catch (e) {
@@ -774,6 +868,7 @@ async function renderHadithBook(view, slug, page = 1) {
       ${pager("bot")}`;
     view.querySelectorAll("#hbody .hcard").forEach(el =>
       el.addEventListener("click", () => el.classList.toggle("open")));
+    wireHadithShare(view);
     view.querySelectorAll("#hbody .hpager button[data-p]").forEach(b =>
       b.addEventListener("click", () => { const p = b.dataset.p; if (p) renderHadithBook(view, slug, +p); }));
     const go2 = () => {
@@ -808,6 +903,7 @@ async function renderHadithNumber(view, slug, number) {
         ${h.next_number ? `<button class="btn ghost" id="hNext">No. ${esc(h.next_number)} →</button>` : ""}
       </div>`;
     document.getElementById("hBack2").addEventListener("click", () => renderHadithBook(view, slug));
+    wireHadithShare(view);
     const p = document.getElementById("hPrev"), n = document.getElementById("hNext");
     if (p) p.addEventListener("click", () => renderHadithNumber(view, slug, +h.prev_number));
     if (n) n.addEventListener("click", () => renderHadithNumber(view, slug, +h.next_number));
@@ -1095,7 +1191,7 @@ function playQuranFrom(surah, startAyah, totalAyahs, surahName) {
 const ALARM_KEY = "ilm_alarm";
 const ADHAN_URL = "https://www.islamcan.com/audio/adhan/azan1.mp3";
 let alarmCfg = JSON.parse(localStorage.getItem(ALARM_KEY) || "null") ||
-  { on: false, push: false, sound: "adhan", prayers: { fajr: true, dhuhr: true, asr: true, maghrib: true, isha: true } };
+  { on: false, push: false, sound: "adhan", prayers: { fajr: true, dhuhr: true, asr: true, maghrib: true, isha: true, daily: true } };
 let alarmTimers = [];
 let adhanAudio = null;
 
@@ -1104,6 +1200,7 @@ function saveAlarm() { localStorage.setItem(ALARM_KEY, JSON.stringify(alarmCfg))
 function renderAlarmCard() {
   const box = $("#alarm-body");
   if (!box) return;
+  if (alarmCfg.prayers.daily === undefined) alarmCfg.prayers.daily = true;
   const pr = alarmCfg.prayers;
   const perm = typeof Notification !== "undefined" ? Notification.permission : "unsupported";
   box.innerHTML = `
@@ -1116,7 +1213,7 @@ function renderAlarmCard() {
     </div>
     <div style="margin-top:10px;font-size:13px;color:var(--muted)">Ring the adhan at each prayer time. Turn on *Phone alarm* to also get a notification at every salah when the app is closed — tap it and the adhan plays.</div>
     <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
-      ${Object.keys(pr).map(k => `<label class="achip ${pr[k] ? "on" : ""}" data-k="${k}" style="cursor:pointer">${pr[k] ? "✓ " : ""}${{fajr:"Fajr",dhuhr:"Dhuhr",asr:"Asr",maghrib:"Maghrib",isha:"Isha"}[k]}</label>`).join("")}
+      ${Object.keys(pr).map(k => `<label class="achip ${pr[k] ? "on" : ""}" data-k="${k}" style="cursor:pointer">${pr[k] ? "✓ " : ""}${{fajr:"Fajr",dhuhr:"Dhuhr",asr:"Asr",maghrib:"Maghrib",isha:"Isha",daily:"\u{1F4D6} Daily verse"}[k]}</label>`).join("")}
     </div>
     <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <select id="alarmSound" style="background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:6px 8px">
@@ -1145,6 +1242,7 @@ function renderAlarmCard() {
     const k = chip.dataset.k;
     alarmCfg.prayers[k] = !alarmCfg.prayers[k];
     saveAlarm(); renderAlarmCard();
+    if (alarmCfg.push && (k === "daily" || !alarmCfg.prayers[k])) enablePhoneAlarm(); // re-sync server selection
   }));
   $("#alarmSound").addEventListener("change", e => { alarmCfg.sound = e.target.value; saveAlarm(); });
   $("#alarmTest").addEventListener("click", () => ringAlarm("test"));
