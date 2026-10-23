@@ -328,7 +328,7 @@ async function renderSurahList(view) {
   const st = JSON.parse(localStorage.getItem(STREAK_KEY) || '{"cur":0,"best":0,"last":""}');
   const streakHTML = st.cur > 0 ? `<span class="pill" title="Best: ${st.best} days">🔥 ${st.cur}-day reading streak</span>` : "";
   const lastHTML = last ? `<div class="card" style="margin:10px 12px;padding:12px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
-      <div><b style="color:var(--gold)">📖 Continue reading</b><div style="font-size:13px;color:var(--muted);margin-top:2px">${esc(last.name)} · last opened ${Math.max(1, Math.round((Date.now() - last.ts) / 3600000))}h ago</div></div>
+      <div><b style="color:var(--gold)">📖 Continue reading</b><div style="font-size:13px;color:var(--muted);margin-top:2px">${esc(last.name)} · last opened ${Date.now() - last.ts < 3600000 ? "just now" : Math.round((Date.now() - last.ts) / 3600000) + "h ago"}</div></div>
       <button class="btn" id="resumeRead">Open ${last.surah}</button>
     </div>` : "";
   const marksHTML = marks.length ? `<div class="card" style="margin:10px 12px;padding:12px 14px">
