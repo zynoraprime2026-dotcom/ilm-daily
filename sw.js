@@ -1,10 +1,12 @@
 // Ilm Daily service worker — offline shell + offline Quran audio + salat alarm support.
-const CACHE = 'ilm-daily-v6';
+const CACHE = 'ilm-daily-v7';
 const AUDIO_CACHE = 'ilm-quran-audio';
-const SHELL = ['./', './index.html', './stories.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const SHELL = ['./', './index.html', './stories.js', './quran.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // shell items are cached individually: one flaky asset must not block the
+  // whole update from installing
+  e.waitUntil(caches.open(CACHE).then(c => Promise.allSettled(SHELL.map(u => c.add(u)))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(
@@ -92,6 +94,13 @@ self.addEventListener('fetch', e => {
   if (url.origin !== location.origin) {
     // third-party audio (Quran recitations, adhan): offline bucket first, else network (and cache)
     if (url.pathname.endsWith('.mp3')) e.respondWith(serveAudio(e.request));
+    // Google Fonts are versioned/immutable — cache-first keeps the Inter/Amiri
+    // letterforms available offline instead of falling back to system fonts
+    if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
+      e.respondWith(caches.open(CACHE).then(async c =>
+        (await c.match(e.request)) || fetch(e.request).then(r => { c.put(e.request, r.clone()); return r; })
+      ));
+    }
     return; // everything else cross-origin: straight to network
   }
   if (e.request.mode === 'navigate' || (e.request.headers.get('accept') || '').includes('text/html')) {
