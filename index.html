@@ -567,7 +567,7 @@ async function saveWholeQuranOffline(btn) {
             const r = await fetch(u);
             if (r.ok || r.type === "opaque") await cache.put(u, r);
             else { ok = false; set(`Problem: server returned ${r.status} for this surah`); }
-          } catch (e) { ok = false; set(`Problem: ${String(e.message || e).slice(0, 120)}`); }
+          } catch (e) { ok = false; set(`Problem: ${esc(String(e.message || e).slice(0, 120))}`); }
         }
       }
       if (quranDl.cancel) break;
@@ -639,7 +639,7 @@ async function renderSurah(view, n) {
         <div class="ayah" data-a="${a.ayah_number}">
           <button class="aplay" title="Play this ayah" data-p="${a.ayah_number}">▶</button>
           <span class="num">${a.ayah_number}</span>
-          <div class="ar">${a.text_arabic}</div>
+          <div class="ar">${esc(a.text_arabic)}</div>
           <div class="tr">${esc(a.translation)}</div>
           <div style="display:flex;gap:8px;margin-top:8px">
             <button class="btn ghost amark" data-a="${a.ayah_number}" style="font-size:12px;padding:4px 10px">${mk ? "★ Bookmarked" : "☆ Bookmark"}</button>
@@ -716,10 +716,10 @@ async function toggleWords(el, surah, ayah) {
       <div class="wbw-grid">
         ${data.words.map(w => `
           <div class="wbw-w">
-            <div class="wbw-ar">${w.text_arabic}</div>
+            <div class="wbw-ar">${esc(w.text_arabic)}</div>
             <div class="wbw-tl">${esc(w.transliteration || "")}</div>
             <div class="wbw-tr">${esc(w.translation || "")}</div>
-            <div class="wbw-pos">${esc(w.part_of_speech || "")}${w.root_arabic ? " · root: " + w.root_arabic : ""}</div>
+            <div class="wbw-pos">${esc(w.part_of_speech || "")}${w.root_arabic ? " · root: " + esc(w.root_arabic) : ""}</div>
           </div>`).join("")}
       </div>
       <div class="tafsir-sec"><div class="loading">Loading tafsir…</div></div>`;
@@ -776,7 +776,7 @@ function hadithCard(h, open, slug) {
         ${h.grade ? `<span class="pill green">${esc(h.grade)}</span>` : ""}
       </div>
       <div class="hc-en hc-clamp"><b>${esc(h.narrator || "")}</b>: ${esc(h.text_english || "")}</div>
-      ${h.text_arabic ? `<div class="hc-ar">${h.text_arabic}</div>` : ""}
+      ${h.text_arabic ? `<div class="hc-ar">${esc(h.text_arabic)}</div>` : ""}
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
         ${h.text_arabic ? `<button class="btn ghost hplay" data-slug="${esc(slug || h.collection || "")}" data-num="${esc(h.hadith_number)}" title="Listen to the Arabic — it saves for offline as it plays" style="font-size:11px;padding:3px 9px">▶ Listen</button>` : ""}
         <button class="btn ghost hshare" style="font-size:11px;padding:3px 9px">↗ Share</button>
@@ -1100,7 +1100,7 @@ function renderHadith(view) {
                 <span class="pill">No. ${esc(h.hadith_number)}</span>
                 ${h.grade ? `<span class="pill green">${esc(h.grade)}</span>` : ""}
               </div>
-              ${h.text_arabic ? `<div class="ar" style="font-size:19px;margin-bottom:8px">${h.text_arabic}</div>` : ""}
+              ${h.text_arabic ? `<div class="ar" style="font-size:19px;margin-bottom:8px">${esc(h.text_arabic)}</div>` : ""}
               <div class="tr" style="color:var(--text)">Narrated ${esc(h.narrator)}: ${esc(h.text_english)}</div>
               <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
             ${h.text_arabic ? `<button class="btn ghost hplay" data-slug="${esc(h.collection)}" data-num="${esc(h.hadith_number)}" title="Listen to the Arabic — saves for offline" style="font-size:11px;padding:3px 9px">▶ Listen</button>` : ""}
@@ -1147,7 +1147,7 @@ async function renderHadithBook(view, slug, page = 1) {
         Page <input id="hpage" type="number" min="1" max="${data.total_pages}" value="${data.page}"> or hadith no. <input id="hnum" type="number" placeholder="e.g. 2557"> <button class="btn ghost" id="hGo2">Go</button>
       </div>
       ${pager("top")}
-      <div id="hlist">${data.hadiths.map(h => hadithCard(h, false)).join("") || `<div class="empty">No hadiths.</div>`}</div>
+      <div id="hlist">${data.hadiths.map(h => hadithCard(h, false, slug)).join("") || `<div class="empty">No hadiths.</div>`}</div>
       ${pager("bot")}`;
     view.querySelectorAll("#hbody .hcard").forEach(el =>
       el.addEventListener("click", () => el.classList.toggle("open")));
@@ -1177,7 +1177,7 @@ async function renderHadithNumber(view, slug, number) {
       <div class="card" style="text-align:center;margin:10px 12px;padding:14px">
         <div class="hb-avatar" style="background:${m.color};margin-bottom:8px">${m.init}</div>
         <div style="font-weight:700;color:var(--fg)">${esc(h.collection_name || h.collection || slug)} — No. ${esc(h.hadith_number)}</div>
-        <div class="hb-ar">${m.ar}</div>
+        <div class="hb-ar">${esc(m.ar)}</div>
       </div>
       ${hadithCard(h, true, slug)}
       <div class="hpager">
@@ -1217,7 +1217,7 @@ async function renderDuas(view, slug, title) {
     $("#dbody").innerHTML = (duas || []).map(d => `
       <div class="ayah" style="cursor:default">
         <div style="font-weight:600;color:var(--gold);font-size:14px;margin-bottom:8px">${esc(d.title)}</div>
-        <div class="ar" style="font-size:22px">${d.text_arabic}</div>
+        <div class="ar" style="font-size:22px">${esc(d.text_arabic)}</div>
         ${d.transliteration ? `<div class="tr" style="color:var(--gold);font-style:italic">${esc(d.transliteration)}</div>` : ""}
         <div class="tr">${esc(d.translation)}</div>
         ${d.reference ? `<div class="dua-ref">${esc(d.reference)}</div>` : ""}
@@ -1236,7 +1236,7 @@ function renderStories(view) {
     <div class="sparts">
       ${Object.entries(parts).map(([k, p]) => `
         <button class="spart ${k === storiesPart ? "active" : ""}" data-p="${k}">
-          <span class="spart-ar">${p.ar}</span>${esc(p.en)}
+          <span class="spart-ar">${esc(p.ar)}</span>${esc(p.en)}
         </button>`).join("")}
     </div>
     <div class="story-desc">${esc(parts[storiesPart].desc)}</div>
@@ -1273,7 +1273,7 @@ function renderStory(view, id) {
       <div class="seclabel">From the Quran · مِنَ الْقُرْآنِ</div>
       ${s.ayat.map(a => `
         <div class="ayah" style="cursor:default">
-          <span class="sref">${a.ref}</span>
+          <span class="sref">${esc(a.ref)}</span>
           <div class="ar">${a.ar}</div>
           <div class="tr">${esc(a.en)}</div>
         </div>`).join("")}` : ""}
@@ -1286,7 +1286,7 @@ function renderStory(view, id) {
             ${hd.grade ? `<span class="pill green">${esc(hd.grade)}</span>` : ""}
           </div>
           <div class="tr" style="margin-top:0">${esc(hd.en)}</div>
-          ${hd.ar ? `<div class="hadith-ar">${hd.ar}</div>` : ""}
+          ${hd.ar ? `<div class="hadith-ar">${esc(hd.ar)}</div>` : ""}
         </div>`).join("")}` : ""}
     <div class="story-nav">
       <button class="btn ghost" id="sprev" ${prev ? "" : "disabled"}>← ${prev ? esc(prev.nameEn) : "—"}</button>
