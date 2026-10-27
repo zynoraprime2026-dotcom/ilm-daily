@@ -876,7 +876,7 @@ async function playHadithAudio(btn, slug, num, text) {
     return;
   }
   hForceTts = false;
-  btn.classList.remove("loading"); btn.textContent = "\u23f9 Stop";
+  btn.classList.remove("loading"); btn.textContent = mode === "recorded" ? "\u23f9 Recitation" : "\u23f9 Voice";
   btn.title = mode === "recorded" ? "Recorded recitation \u00b7 saved offline" : "Arabic voice \u00b7 saved offline";
   if (card) card.classList.add("playing");
   hPlayState = { slug, num, btn, card, mode, text, blobs: blobs.map(b => URL.createObjectURL(b)), i: 0 };
