@@ -291,7 +291,7 @@ async function api(path, needsKey = true) {
 let loc = JSON.parse(localStorage.getItem("ilm_loc") || "null") || { lat: 5.30, lng: -2.00, name: "Tarkwa, Ghana" };
 // The full Quran ships inside the app (quran.js) — the sura list and every
 // ayah are always available offline; nothing needs to be downloaded first.
-const surahsCache = (window.QURAN_PACK && QURAN_PACK.surahs || []).map(s => ({
+const surahsCache = (typeof QURAN_PACK !== "undefined" && QURAN_PACK.surahs || []).map(s => ({
   number: s.number, name_arabic: s.name_arabic, name_english: s.name_english,
   name_transliteration: s.name_transliteration, revelation_place: s.revelation_place, ayah_count: s.ayah_count
 }));
@@ -589,7 +589,7 @@ async function renderSurah(view, n) {
   $("#back").addEventListener("click", () => renderSurahList(view));
   try {
     const meta = surahsCache.find(s => s.number === n);
-    const packed = (window.QURAN_PACK && QURAN_PACK.surahs || []).find(s => s.number === n);
+    const packed = (typeof QURAN_PACK !== "undefined" && QURAN_PACK.surahs || []).find(s => s.number === n);
     if (!packed) throw new Error("This surah is missing from the bundled Quran");
     const data = { ayahs: packed.ayahs.map(([ayah_number, text_arabic, translation]) => ({ ayah_number, text_arabic, translation })) };
     $("#sbody").innerHTML = `
