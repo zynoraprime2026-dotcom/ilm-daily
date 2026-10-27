@@ -220,6 +220,12 @@ a { color: var(--gold); }
 h1 { font-weight: 800; font-size: 26px; margin-top: 4px; }
 .sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
 
+/* memorize panel */
+.memrow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 9px; font-size: 12px; color: var(--muted); }
+.memrow input { width: 58px; padding: 6px 8px; font-size: 13px; }
+.memrow select { padding: 6px 8px; font-size: 12.5px; }
+.memstatus { font-size: 12px; color: var(--gold); font-weight: 700; }
+
 /* entry animation */
 @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 #view > * { animation: fadeUp .38s cubic-bezier(.2,.7,.3,1) both; }
@@ -608,6 +614,25 @@ async function renderSurah(view, n) {
           <button class="btn ghost" id="dlSurah">⬇ Save offline</button>
         </div>
       </div>
+      <div class="card" id="memCard">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <b style="color:var(--gold)">🧠 Memorize</b>
+          <span class="rnote" style="margin:0">ayah-by-ayah repetition for hifz</span>
+        </div>
+        <div class="memrow">Ayahs <input id="memFrom" type="number" min="1" max="${data.ayahs.length}" value="1"> to <input id="memTo" type="number" min="1" max="${data.ayahs.length}" value="${data.ayahs.length}"></div>
+        <div class="memrow">Repeat each ayah
+          <select id="memRep"><option value="1">1\u00d7</option><option value="2">2\u00d7</option><option value="3" selected>3\u00d7</option><option value="5">5\u00d7</option><option value="7">7\u00d7</option></select>
+          \u00b7 loop range
+          <select id="memLoop"><option value="1" selected>1\u00d7</option><option value="2">2\u00d7</option><option value="3">3\u00d7</option><option value="5">5\u00d7</option><option value="0">\u221e</option></select>
+          \u00b7 speed
+          <select id="memSpeed"><option value="0.75">0.75\u00d7</option><option value="0.9">0.9\u00d7</option><option value="1" selected>1\u00d7</option><option value="1.25">1.25\u00d7</option></select>
+        </div>
+        <div class="memrow">
+          <button class="btn" id="memStart">▶ Start</button>
+          <span class="memstatus" id="memStatus"></span>
+        </div>
+        <div class="rnote">Plays an ayah, repeats it, then moves on — and can loop the whole range. Saved-offline audio is used automatically. Islam Sobhi recites full suras only, so pick another reciter for memorize.</div>
+      </div>
       ${data.ayahs.map(a => {
         const mk = quranMarks().some(m => m.surah === n && m.ayah === a.ayah_number);
         return `
@@ -631,6 +656,20 @@ async function renderSurah(view, n) {
     });
     $("#dlSurah").addEventListener("click", () => {
       saveSurahOffline(n, meta ? meta.ayah_count : data.ayahs.length, $("#dlSurah"));
+    });
+    const memBtn = document.getElementById("memStart");
+    if (memBtn) memBtn.addEventListener("click", () => {
+      if (memState) { stopQuranAudio(); return; }
+      const total2 = meta ? meta.ayah_count : data.ayahs.length;
+      const from = Math.min(Math.max(1, +document.getElementById("memFrom").value || 1), total2);
+      const to = Math.min(Math.max(from, +document.getElementById("memTo").value || total2), total2);
+      const loopSel = document.getElementById("memLoop").value;
+      startMemorize(n, total2, meta ? meta.name_transliteration : "Surah " + n, {
+        from, to,
+        perAyah: +document.getElementById("memRep").value || 3,
+        loops: +loopSel || 1, loopForever: loopSel === "0",
+        speed: +document.getElementById("memSpeed").value || 1
+      });
     });
     applyReciterUI(n);
     noteLastRead(n, meta);
@@ -728,7 +767,7 @@ const HADITH_BOOKS = {
   dehlawi40:{ init: "40", color: "#f06292", ar: "\u0623\u0631\u0628\u0639\u0648\u0646 \u0627\u0644\u0634\u0627\u0647 \u0648\u0644\u064a \u0627\u0644\u0644\u0647" }
 };
 const hbMeta = s => HADITH_BOOKS[s] || { init: (s[0] || "?").toUpperCase(), color: "#88807a", ar: "" };
-function hadithCard(h, open) {
+function hadithCard(h, open, slug) {
   return `
     <div class="ayah hcard ${open ? "open" : ""}" style="cursor:default">
       <div class="hadith-meta">
@@ -738,11 +777,98 @@ function hadithCard(h, open) {
       </div>
       <div class="hc-en hc-clamp"><b>${esc(h.narrator || "")}</b>: ${esc(h.text_english || "")}</div>
       ${h.text_arabic ? `<div class="hc-ar">${h.text_arabic}</div>` : ""}
-      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+        ${h.text_arabic ? `<button class="btn ghost hplay" data-slug="${esc(slug || h.collection || "")}" data-num="${esc(h.hadith_number)}" title="Listen to the Arabic — it saves for offline as it plays" style="font-size:11px;padding:3px 9px">▶ Listen</button>` : ""}
         <button class="btn ghost hshare" style="font-size:11px;padding:3px 9px">↗ Share</button>
         <span style="font-size:11px;color:var(--muted)">Tap to ${open ? "collapse" : "show Arabic & full text"}</span>
       </div>
     </div>`;
+}
+
+// ---- Hadith audio: Arabic text-to-speech via the Ilm API, chunk by chunk.
+// Every chunk that plays is stored in Cache Storage, so a hadith you have
+// listened to once is available offline forever after. ----
+const HADITH_CACHE = "ilm-hadith-audio";
+let hAudio = null, hPlayState = null;
+const hadithAudioURL = (slug, num, i) => new URL("__hadith_audio__/" + encodeURIComponent(slug || "h") + "/" + num + "/" + i, location.href).href;
+function splitArabic(text, max = 180) {
+  const words = String(text).replace(/\uFEFF/g, "").replace(/\s+/g, " ").trim().split(" ");
+  const out = []; let cur = "";
+  for (const w of words) {
+    if ((cur + " " + w).trim().length > max) { if (cur) out.push(cur); cur = w; }
+    else cur = cur ? cur + " " + w : w;
+  }
+  if (cur) out.push(cur);
+  return out.length ? out : [String(text).trim()].filter(Boolean);
+}
+function stopHadithAudio() {
+  if (hAudio) { hAudio.pause(); hAudio = null; }
+  if (hPlayState) {
+    hPlayState.blobs.forEach(u => { try { URL.revokeObjectURL(u); } catch (e) {} });
+    const b = hPlayState.btn;
+    if (b) { b.textContent = "▶ Listen"; b.classList.remove("loading"); }
+    if (hPlayState.card) hPlayState.card.classList.remove("playing");
+    hPlayState = null;
+  }
+}
+function playHChunk() {
+  const st = hPlayState; if (!st) return;
+  if (st.i >= st.blobs.length) return stopHadithAudio();
+  hAudio = new Audio(st.blobs[st.i]); st.i++;
+  hAudio.onended = playHChunk;
+  hAudio.onerror = () => stopHadithAudio();
+  hAudio.play().catch(() => stopHadithAudio());
+}
+async function playHadithAudio(btn, slug, num, text) {
+  if (hPlayState && hPlayState.btn === btn) { stopHadithAudio(); return; }
+  stopHadithAudio();
+  const card = btn.closest(".hcard");
+  const pieces = splitArabic(text);
+  if (!("caches" in window)) { await appDialog("This browser can't save offline audio — try Chrome.", [["OK", null, true]]); return; }
+  btn.classList.add("loading"); btn.textContent = "… 0/" + pieces.length;
+  const cache = await caches.open(HADITH_CACHE);
+  const blobs = [];
+  try {
+    for (let i = 0; i < pieces.length; i++) {
+      const url = hadithAudioURL(slug, num, i);
+      let hit = await cache.match(url);
+      if (!hit) {
+        if (!navigator.onLine) throw new Error("offline");
+        const res = await fetch(API + "/v1/dictionary/audio?word=" + encodeURIComponent(pieces[i]));
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const blob = await res.blob();
+        if (blob.size < 200) throw new Error("empty clip");
+        await cache.put(url, new Response(blob, { headers: { "Content-Type": "audio/mpeg" } }));
+        hit = await cache.match(url);
+      }
+      blobs.push(await hit.blob());
+      btn.textContent = "… " + (i + 1) + "/" + pieces.length;
+    }
+  } catch (e) {
+    btn.classList.remove("loading"); btn.textContent = "▶ Listen";
+    await appDialog(navigator.onLine
+      ? "Hadith audio unavailable right now — the recitation service is busy, try again shortly."
+      : "This hadith is not saved for offline yet. Connect once, tap Listen, and it saves itself for offline use.",
+      [["OK", null, true]]);
+    return;
+  }
+  btn.classList.remove("loading"); btn.textContent = "⏹ Stop";
+  if (card) card.classList.add("playing");
+  hPlayState = { slug, num, btn, card, blobs: blobs.map(b => URL.createObjectURL(b)), i: 0 };
+  playHChunk();
+}
+function wireHadithPlay(scope) {
+  (scope || document).querySelectorAll(".hplay").forEach(b => {
+    if (b.dataset.wired) return; b.dataset.wired = "1";
+    b.addEventListener("click", async e => {
+      e.stopPropagation();
+      const card = b.closest(".hcard") || b.closest(".ayah");
+      const arEl = card && (card.querySelector(".hc-ar") || card.querySelector(".ar"));
+      const text = arEl ? arEl.textContent : "";
+      if (!text || !text.trim()) { await appDialog("This hadith has no Arabic text to read.", [["OK", null, true]]); return; }
+      playHadithAudio(b, b.dataset.slug, b.dataset.num, text);
+    });
+  });
 }
 
 function wireHadithShare(scope) {
@@ -930,9 +1056,13 @@ function renderHadith(view) {
               </div>
               ${h.text_arabic ? `<div class="ar" style="font-size:19px;margin-bottom:8px">${h.text_arabic}</div>` : ""}
               <div class="tr" style="color:var(--text)">Narrated ${esc(h.narrator)}: ${esc(h.text_english)}</div>
-              <div style="margin-top:6px"><button class="btn ghost hshare-s" data-b="${esc(h.collection)}" data-r="${esc(h.hadith_number)}" style="font-size:11px;padding:3px 9px">↗ Share</button></div>
+              <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+            ${h.text_arabic ? `<button class="btn ghost hplay" data-slug="${esc(h.collection)}" data-num="${esc(h.hadith_number)}" title="Listen to the Arabic — saves for offline" style="font-size:11px;padding:3px 9px">▶ Listen</button>` : ""}
+            <button class="btn ghost hshare-s" data-b="${esc(h.collection)}" data-r="${esc(h.hadith_number)}" style="font-size:11px;padding:3px 9px">↗ Share</button>
+          </div>
             </div>`).join("") +
           `<div style="text-align:center;margin:14px"><button class="btn ghost" id="hBack">← Back to books</button></div>`;
+      wireHadithPlay(view);
       view.querySelectorAll(".hshare-s").forEach(b => b.addEventListener("click", () => {
         const card = b.closest(".hcard");
         const ar = card.querySelector(".ar");
@@ -975,7 +1105,7 @@ async function renderHadithBook(view, slug, page = 1) {
       ${pager("bot")}`;
     view.querySelectorAll("#hbody .hcard").forEach(el =>
       el.addEventListener("click", () => el.classList.toggle("open")));
-    wireHadithShare(view);
+    wireHadithShare(view); wireHadithPlay(view);
     view.querySelectorAll("#hbody .hpager button[data-p]").forEach(b =>
       b.addEventListener("click", () => { const p = b.dataset.p; if (p) renderHadithBook(view, slug, +p); }));
     const go2 = () => {
@@ -1003,14 +1133,14 @@ async function renderHadithNumber(view, slug, number) {
         <div style="font-weight:700;color:var(--fg)">${esc(h.collection_name || h.collection || slug)} — No. ${esc(h.hadith_number)}</div>
         <div class="hb-ar">${m.ar}</div>
       </div>
-      ${hadithCard(h, true)}
+      ${hadithCard(h, true, slug)}
       <div class="hpager">
         ${h.prev_number ? `<button class="btn ghost" id="hPrev">← No. ${esc(h.prev_number)}</button>` : ""}
         <button class="btn ghost" id="hBack2">All hadiths</button>
         ${h.next_number ? `<button class="btn ghost" id="hNext">No. ${esc(h.next_number)} →</button>` : ""}
       </div>`;
     document.getElementById("hBack2").addEventListener("click", () => renderHadithBook(view, slug));
-    wireHadithShare(view);
+    wireHadithShare(view); wireHadithPlay(view);
     const p = document.getElementById("hPrev"), n = document.getElementById("hNext");
     if (p) p.addEventListener("click", () => renderHadithNumber(view, slug, +h.prev_number));
     if (n) n.addEventListener("click", () => renderHadithNumber(view, slug, +h.next_number));
@@ -1225,6 +1355,7 @@ function applyReciterUI(surah) {
   if (note) note.textContent = full
     ? "Islam Sobhi recites the full surah as one audio file — ayah-by-ayah play is available with the other reciters."
     : "";
+  const mc = document.getElementById("memCard"); if (mc) mc.style.display = full ? "none" : "";
   const dl = document.getElementById("dlSurah");
   if (dl) {
     const saved = isSavedOffline(surah);
@@ -1291,9 +1422,12 @@ function wireMediaSession() {
 }
 
 function stopQuranAudio() {
+  memState = null; // stopping anything also ends a memorize session
   if (qAudio) { qAudio.pause(); delete qAudio; qAudio = null; }
   document.querySelectorAll(".ayah.playing").forEach(el => el.classList.remove("playing"));
   const b = document.getElementById("playSurah"); if (b) b.textContent = "▶ Play surah";
+  const ms = document.getElementById("memStart"); if (ms) { ms.disabled = false; ms.textContent = "▶ Start"; }
+  const st = document.getElementById("memStatus"); if (st) st.textContent = "";
   if ("mediaSession" in navigator) { try { navigator.mediaSession.playbackState = "none"; } catch (e) {} }
 }
 function playQuranFrom(surah, startAyah, totalAyahs, surahName) {
@@ -1316,6 +1450,45 @@ function playQuranFrom(surah, startAyah, totalAyahs, surahName) {
     qAudio.play().catch(() => stopQuranAudio());
   };
   play(full ? 1 : startAyah);
+}
+
+// ---- Memorize mode: ayah-by-ayah with per-ayah repetition, range loops,
+// recitation speed control, live highlight and auto-scroll. Great for
+// hifz: the audio you have saved offline is used automatically. ----
+let memState = null;
+function startMemorize(surah, total, surahName, o) {
+  stopQuranAudio();
+  memState = { surah, total, surahName, from: o.from, to: o.to, perAyah: o.perAyah,
+    loops: o.loops, loopForever: o.loopForever, speed: o.speed, ayah: o.from, rep: 1, loop: 1 };
+  memStep();
+}
+function memStep() {
+  const m = memState;
+  if (!m) return;
+  if (m.ayah > m.to) {
+    if (m.loopForever || m.loop < m.loops) { m.loop++; m.ayah = m.from; m.rep = 1; }
+    else { stopQuranAudio(); return; }
+  }
+  qAudio = new Audio(ayahURL(m.surah, m.ayah));
+  qAudio.dataset.a = m.ayah;
+  qAudio.playbackRate = m.speed;
+  document.querySelectorAll(".ayah.playing").forEach(el => el.classList.remove("playing"));
+  const row = document.querySelector(`.ayah[data-a="${m.ayah}"]`);
+  if (row) { row.classList.add("playing"); row.scrollIntoView({ block: "center", behavior: "smooth" }); }
+  const ms = document.getElementById("memStart"); if (ms) ms.textContent = "■ Stop";
+  const st = document.getElementById("memStatus");
+  if (st) st.textContent = `Ayah ${m.ayah} · repeat ${m.rep}/${m.perAyah} · round ${m.loop}${m.loopForever ? "" : "/" + m.loops} · ${m.speed}\u00d7`;
+  setMediaSession(m.surahName + " (memorize)");
+  wireMediaSession();
+  qAudio.addEventListener("ended", () => {
+    const cur = memState;
+    if (!cur) return;
+    if (cur.rep < cur.perAyah) cur.rep++;
+    else { cur.rep = 1; cur.ayah++; }
+    setTimeout(() => { if (memState) memStep(); }, 450);
+  });
+  qAudio.addEventListener("error", () => stopQuranAudio());
+  qAudio.play().catch(() => stopQuranAudio());
 }
 
 // ================= SALAT ALARM =================
