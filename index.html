@@ -811,51 +811,97 @@ function stopHadithAudio() {
     hPlayState = null;
   }
 }
-function playHChunk() {
-  const st = hPlayState; if (!st) return;
-  if (st.i >= st.blobs.length) return stopHadithAudio();
-  hAudio = new Audio(st.blobs[st.i]); st.i++;
-  hAudio.onended = playHChunk;
-  hAudio.onerror = () => stopHadithAudio();
-  hAudio.play().catch(() => stopHadithAudio());
-}
 async function playHadithAudio(btn, slug, num, text) {
   if (hPlayState && hPlayState.btn === btn) { stopHadithAudio(); return; }
   stopHadithAudio();
   const card = btn.closest(".hcard");
-  const pieces = splitArabic(text);
   if (!("caches" in window)) { await appDialog("This browser can't save offline audio — try Chrome.", [["OK", null, true]]); return; }
-  btn.classList.add("loading"); btn.textContent = "… 0/" + pieces.length;
   const cache = await caches.open(HADITH_CACHE);
+  const fullURL = hadithAudioURL(slug, num, "full");
+  const pieces = splitArabic(text);
+  btn.classList.add("loading");
+  let mode = null;      // "recorded" (a human recitation) or "tts" (Arabic voice)
   const blobs = [];
   try {
-    for (let i = 0; i < pieces.length; i++) {
-      const url = hadithAudioURL(slug, num, i);
-      let hit = await cache.match(url);
-      if (!hit) {
-        if (!navigator.onLine) throw new Error("offline");
-        const res = await fetch(API + "/v1/dictionary/audio?word=" + encodeURIComponent(pieces[i]));
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const blob = await res.blob();
-        if (blob.size < 200) throw new Error("empty clip");
-        await cache.put(url, new Response(blob, { headers: { "Content-Type": "audio/mpeg" } }));
-        hit = await cache.match(url);
+    // 1) anything already saved plays instantly, offline
+    const full = await cache.match(fullURL);
+    if (full) { blobs.push(await full.blob()); mode = "recorded"; }
+    if (!blobs.length) {
+      const first = await cache.match(hadithAudioURL(slug, num, 0));
+      if (first) {
+        mode = "tts";
+        for (let i = 0; i < pieces.length; i++) {
+          const c = await cache.match(hadithAudioURL(slug, num, i));
+          if (c) blobs.push(await c.blob());
+        }
       }
-      blobs.push(await hit.blob());
-      btn.textContent = "… " + (i + 1) + "/" + pieces.length;
+    }
+    // 2) online: a recorded recitation where one exists, the TTS voice otherwise
+    if (!blobs.length) {
+      if (!navigator.onLine) throw new Error("offline");
+      let resolved = null;
+      try { resolved = await (await fetch(API + "/v1/hadith-audio/" + encodeURIComponent(slug) + "/" + encodeURIComponent(num))).json(); } catch (e) {}
+      if (!hForceTts && resolved && resolved.recorded && resolved.clip) {
+        btn.textContent = "… recitation";
+        const r = await fetch(API + resolved.clip);
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const blob = await r.blob();
+        if (blob.size < 2000) throw new Error("empty clip");
+        await cache.put(fullURL, new Response(blob, { headers: { "Content-Type": blob.type || "audio/mpeg" } }));
+        blobs.push(blob); mode = "recorded";
+      } else {
+        mode = "tts";
+        for (let i = 0; i < pieces.length; i++) {
+          const url = hadithAudioURL(slug, num, i);
+          let hit = await cache.match(url);
+          if (!hit) {
+            btn.textContent = "\u2026 " + (i + 1) + "/" + pieces.length;
+            const res = await fetch(API + "/v1/dictionary/audio?word=" + encodeURIComponent(pieces[i]));
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            const blob = await res.blob();
+            if (blob.size < 200) throw new Error("empty clip");
+            await cache.put(url, new Response(blob, { headers: { "Content-Type": "audio/mpeg" } }));
+            hit = await cache.match(url);
+          }
+          blobs.push(await hit.blob());
+        }
+      }
     }
   } catch (e) {
-    btn.classList.remove("loading"); btn.textContent = "▶ Listen";
+    btn.classList.remove("loading"); btn.textContent = "\u25b6 Listen";
     await appDialog(navigator.onLine
       ? "Hadith audio unavailable right now — the recitation service is busy, try again shortly."
       : "This hadith is not saved for offline yet. Connect once, tap Listen, and it saves itself for offline use.",
       [["OK", null, true]]);
     return;
   }
-  btn.classList.remove("loading"); btn.textContent = "⏹ Stop";
+  hForceTts = false;
+  btn.classList.remove("loading"); btn.textContent = "\u23f9 Stop";
+  btn.title = mode === "recorded" ? "Recorded recitation \u00b7 saved offline" : "Arabic voice \u00b7 saved offline";
   if (card) card.classList.add("playing");
-  hPlayState = { slug, num, btn, card, blobs: blobs.map(b => URL.createObjectURL(b)), i: 0 };
+  hPlayState = { slug, num, btn, card, mode, text, blobs: blobs.map(b => URL.createObjectURL(b)), i: 0 };
   playHChunk();
+}
+let hForceTts = false;
+function playHChunk() {
+  const st = hPlayState; if (!st) return;
+  if (st.i >= st.blobs.length) return stopHadithAudio();
+  hAudio = new Audio(st.blobs[st.i]);
+  st.i++;
+  hAudio.onended = playHChunk;
+  hAudio.onerror = async () => {
+    // a recording this device can't decode (e.g. ogg on iPhone): drop it and
+    // read the hadith with the TTS voice instead
+    const st2 = hPlayState;
+    if (st2 && st2.mode === "recorded") {
+      const cache = await caches.open(HADITH_CACHE);
+      await cache.delete(hadithAudioURL(st2.slug, st2.num, "full"));
+      stopHadithAudio();
+      hForceTts = true;
+      playHadithAudio(st2.btn, st2.slug, st2.num, st2.text);
+    } else stopHadithAudio();
+  };
+  hAudio.play().catch(() => { if (hAudio && hAudio.onerror) try { hAudio.onerror(); } catch (e) {} });
 }
 function wireHadithPlay(scope) {
   (scope || document).querySelectorAll(".hplay").forEach(b => {

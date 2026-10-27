@@ -1,5 +1,5 @@
 // Ilm Daily service worker — offline shell + offline Quran audio + salat alarm support.
-const CACHE = 'ilm-daily-v8';
+const CACHE = 'ilm-daily-v9';
 const AUDIO_CACHE = 'ilm-quran-audio';
 const SHELL = ['./', './index.html', './stories.js', './quran.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
@@ -93,7 +93,9 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) {
     // third-party audio (Quran recitations, adhan): offline bucket first, else network (and cache)
-    if (url.pathname.endsWith('.mp3')) e.respondWith(serveAudio(e.request));
+    // hadith-audio clips live in the page's 'ilm-hadith-audio' cache — skip
+    // the double copy here
+    if (url.pathname.endsWith('.mp3') && !url.pathname.includes('/hadith-audio/')) e.respondWith(serveAudio(e.request));
     // Google Fonts are versioned/immutable — cache-first keeps the Inter/Amiri
     // letterforms available offline instead of falling back to system fonts
     if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
