@@ -1,7 +1,7 @@
 // Ilm Daily service worker — offline shell + offline Quran audio + salat alarm support.
-const CACHE = 'ilm-daily-v11';
+const CACHE = 'ilm-daily-v12';
 const AUDIO_CACHE = 'ilm-quran-audio';
-const SHELL = ['./', './index.html', './stories.js', './quran.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const SHELL = ['./', './index.html', './stories.js', './quran.js', './praytimes.js', './duas.json', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   // shell items are cached individually: one flaky asset must not block the
@@ -10,7 +10,7 @@ self.addEventListener('install', e => {
 });
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== AUDIO_CACHE && k !== 'ilm-hadith-audio').map(k => caches.delete(k))))
+    caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== AUDIO_CACHE && k !== 'ilm-hadith-audio' && k !== 'ilm-hadith-text').map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -102,6 +102,17 @@ self.addEventListener('fetch', e => {
       e.respondWith(caches.open(CACHE).then(async c =>
         (await c.match(e.request)) || fetch(e.request).then(r => { c.put(e.request, r.clone()); return r; })
       ));
+    }
+    if (url.hostname.includes('ilm-api')) {
+      // Ilm API: network-first, keep a copy so anything viewed once also works offline
+      e.respondWith(
+        fetch(e.request).then(r => {
+          const copy = r.clone();
+          caches.open(CACHE).then(c => c.put(e.request, copy));
+          return r;
+        }).catch(() => caches.match(e.request))
+      );
+      return;
     }
     return; // everything else cross-origin: straight to network
   }

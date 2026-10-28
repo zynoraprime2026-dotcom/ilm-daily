@@ -246,7 +246,7 @@ h1 { font-weight: 800; font-size: 26px; margin-top: 4px; }
 <body>
 <header class="appbar"><div class="appbar-in">
   <div class="logomark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg></div>
-  <div class="brand"><h1>Ilm Daily</h1><div class="tag" id="hijri-line">Prayer &amp; Quran</div></div>
+  <div class="brand"><h1>Ilm Daily</h1><div id="net" style="font-size:12px;font-weight:600"></div><div class="tag" id="hijri-line">Prayer &amp; Quran</div></div>
   <button class="iconbtn" id="themeBtn" aria-label="Toggle light or dark theme" title="Toggle theme"></button>
 </div></header>
 <div class="wrap">
@@ -284,6 +284,36 @@ h1 { font-weight: 800; font-size: 26px; margin-top: 4px; }
 <script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));</script>
 <script src="stories.js"></script>
 <script src="quran.js"></script>
+<script src="praytimes.js"></script>
+<script>
+/* Offline layer: bundled data (duas, hadith) + on-device prayer calc */
+async function bundle(path) {
+  const res = await fetch("./" + path, { cache: "no-cache" });
+  if (!res.ok) throw new Error("bundle missing: " + path);
+  return res.json();
+}
+function netBadge() {
+  const el = document.getElementById("net");
+  if (!el) return;
+  const on = navigator.onLine;
+  el.textContent = on ? "\u25CF online" : "\u25CF offline mode";
+  el.style.color = on ? "#7ec97e" : "#e8a94e";
+}
+window.addEventListener("online", netBadge);
+window.addEventListener("offline", netBadge);
+const HADITH_CACHE = "ilm-hadith-text";
+async function hadithSaved(slug) {
+  if (!("caches" in window)) return false;
+  return !!(await (await caches.open(HADITH_CACHE)).match(`./hadith/${slug}.ndjson`));
+}
+async function saveHadithText(slug, onProgress) {
+  const c = await caches.open(HADITH_CACHE);
+  const r = await fetch(`./hadith/${slug}.ndjson`);
+  if (!r.ok) throw new Error("download failed");
+  await c.put(`./hadith/${slug}.ndjson`, r.clone());
+  onProgress && onProgress(1, 1);
+}
+</script>
 <script>
 // Keyless: the server's /web/v1 gate acts on the app's behalf (origin-checked),
 // so no API key ever ships in this public JavaScript.
@@ -346,9 +376,13 @@ async function renderPrayer(view) {
   });
   const body = $("#prayer-body");
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const data = await api(`/v1/prayer-times?lat=${loc.lat}&lng=${loc.lng}&date=${today}`, false);
-    const times = data.times;
+    const calc = window.prayTimes(new Date(), loc.lat, loc.lng);
+    await new Promise(r => setTimeout(r)); // let boot-time declarations finish
+    const times = {};
+    for (const k in calc) {
+      const [hh, mm] = calc[k].split(":");
+      times[k] = new Date(new Date().setHours(+hh, +mm, 0, 0));
+    }
     const now = new Date();
     let next = null;
     for (const k of ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"]) {
@@ -1065,19 +1099,35 @@ function renderHadith(view) {
     </div>`;
   (async () => {
     try {
-      const colls = await api("/v1/hadith/collections");
+      let colls;
+      try { colls = await api("/v1/hadith/collections"); }
+      catch { colls = (await bundle("hadith/collections.json")).map(c => ({ ...c, total_hadith: c.total, name_arabic: (hbMeta(c.slug) || {}).ar })); }
       const order = ["bukhari", "muslim", "nasai", "abudawud", "tirmidhi", "ibnmajah", "malik", "ahmed", "riyad", "shamail", "adab", "bulugh", "mishkat", "nawawi40", "qudsi40", "dehlawi40"];
       colls.sort((a, b) => order.indexOf(a.slug) - order.indexOf(b.slug));
+      const savedMap = {};
+      await Promise.all(Object.keys(OFFLINE_HADITH_S).map(async s => { savedMap[s] = await hadithSaved(s); }));
       $("#hbooks").innerHTML = colls.map(c => {
         const m = hbMeta(c.slug);
+        const canSave = !!OFFLINE_HADITH_S[c.slug];
         return `
         <div class="hbook" data-slug="${c.slug}">
           <div class="hb-avatar" style="background:${m.color}">${m.init}</div>
           <div class="hb-name">${esc(c.name)}</div>
           <div class="hb-ar">${esc(c.name_arabic || m.ar)}</div>
           <div class="hb-count">\ud83d\udcd6 ${Number(c.total_hadith).toLocaleString()} Ahadith</div>
+          ${canSave ? `<button class="btn ghost hsave" data-save="${c.slug}" style="margin-top:8px;font-size:12px;padding:4px 10px">${savedMap[c.slug] ? "\u2713 text saved" : "\u2B07 save text offline"}</button>` : ""}
         </div>`;
       }).join("");
+      $("#hbooks").querySelectorAll(".hsave").forEach(btn => btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const slug = btn.dataset.save;
+        if (btn.dataset.busy) return;
+        btn.dataset.busy = "1";
+        btn.textContent = "\u231B downloading\u2026";
+        try { await saveHadithText(slug); btn.textContent = "\u2713 text saved"; }
+        catch (e) { btn.textContent = "\u2B07 save text offline"; alert("Could not save: " + e.message); }
+        delete btn.dataset.busy;
+      }));
       $("#hbooks").querySelectorAll(".hbook").forEach(el =>
         el.addEventListener("click", () => renderHadithBook(view, el.dataset.slug)));
     } catch (e) {
@@ -1088,6 +1138,35 @@ function renderHadith(view) {
     const q = $("#hsearch").value.trim();
     if (!q) return;
     $("#hresults").innerHTML = `<div class="loading">Searching…</div>`;
+    if (!navigator.onLine) {
+      const ql = q.toLowerCase();
+      const out = [];
+      for (const slug of Object.keys(OFFLINE_HADITH_S)) {
+        if (!await hadithSaved(slug)) continue;
+        let recs;
+        try { recs = await offlineHadithLines(slug); } catch { continue; }
+        for (const r of recs) {
+          if ((r.en || "").toLowerCase().includes(ql) || (r.ar || "").includes(q)) {
+            out.push({ coll: hbMeta(slug).name || slug, rec: r });
+            if (out.length >= 20) break;
+          }
+        }
+        if (out.length >= 20) break;
+      }
+      $("#hresults").innerHTML = out.length === 0
+        ? `<div class="empty">Offline: no matches in saved texts. Save books with \u2B07 to search without internet.</div>`
+        : `<p class="note" style="text-align:left">${out.length} results — offline search</p>` + out.map(x => `
+            <div class="ayah hcard" style="cursor:default" onclick="this.classList.toggle('open')">
+              <div class="hadith-meta">
+                <span class="pill">${esc(x.coll)}</span>
+                <span class="pill">No. ${esc(x.rec.n)}</span>
+                ${x.rec.g ? `<span class="pill green">${esc(x.rec.g)}</span>` : ""}
+              </div>
+              ${x.rec.ar ? `<div class="ar" style="font-size:19px;margin-bottom:8px">${esc(x.rec.ar)}</div>` : ""}
+              <div class="tr" style="color:var(--text)">${x.rec.w ? "Narrated " + esc(x.rec.w) + ": " : ""}${esc(x.rec.en)}</div>
+            </div>`).join("");
+      return;
+    }
     try {
       const data = await api(`/v1/hadith/search?q=${encodeURIComponent(q)}`);
       $("#hresults").innerHTML = data.count === 0
@@ -1124,12 +1203,35 @@ function renderHadith(view) {
   $("#hsearch").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
   $("#hScholars").addEventListener("click", () => renderScholars(view));
 }
+const OFFLINE_HADITH_S = { bukhari: 1, muslim: 1, nasai: 1, abudawud: 1, tirmidhi: 1, ibnmajah: 1 };
+async function offlineHadithLines(slug) {
+  const c = await caches.open(HADITH_CACHE);
+  const r = await c.match(`./hadith/${slug}.ndjson`);
+  if (!r) throw new Error("offline-not-saved");
+  return (await r.text()).split("\n").filter(Boolean).map(l => JSON.parse(l));
+}
+async function offlineHadithBook(slug, page) {
+  const m = hbMeta(slug);
+  const recs = await offlineHadithLines(slug);
+  const per = 20;
+  const total = recs.length;
+  const total_pages = Math.max(1, Math.ceil(total / per));
+  page = Math.min(Math.max(1, page), total_pages);
+  const hadiths = recs.slice((page - 1) * per, page * per).map(r => ({
+    hadith_number: r.n, book_number: r.b, grade: r.g, narrator: r.w, text_arabic: r.ar, text_english: r.en
+  }));
+  return { collection: { name: m.name || slug, name_arabic: m.ar }, page, total, total_pages,
+    has_next: page < total_pages, has_prev: page > 1,
+    next_page: page < total_pages ? page + 1 : null, prev_page: page > 1 ? page - 1 : null, hadiths };
+}
 async function renderHadithBook(view, slug, page = 1) {
   const m = hbMeta(slug);
   view.innerHTML = `<button class="back" id="back">← All books</button><div id="hbody"><div class="loading">Loading…</div></div>`;
   $("#back").addEventListener("click", () => renderHadith(view));
   try {
-    const data = await api(`/v1/hadith/${slug}?limit=20&page=${page}`);
+    let data;
+    try { data = await offlineHadithBook(slug, page); }
+    catch { data = await api(`/v1/hadith/${slug}?limit=20&page=${page}`); }
     const pager = (cls) => `
       <div class="hpager ${cls}">
         <button class="btn ghost" data-p="${data.prev_page || ""}" ${!data.has_prev ? "disabled" : ""}>← Prev</button>
@@ -1172,7 +1274,15 @@ async function renderHadithNumber(view, slug, number) {
   view.innerHTML = `<button class="back" id="back">← Back to ${esc(slug)}</button><div id="hbody"><div class="loading">Loading…</div></div>`;
   $("#back").addEventListener("click", () => renderHadithBook(view, slug));
   try {
-    const h = await api(`/v1/hadith/${slug}/${number}`);
+    let h;
+    try {
+      const recs = await offlineHadithLines(slug);
+      const r = recs.find(x => String(x.n) === String(number));
+      if (!r) throw new Error("offline-not-saved");
+      h = { hadith_number: r.n, book_number: r.b, grade: r.g, narrator: r.w, text_arabic: r.ar, text_english: r.en, collection: { name: (hbMeta(slug).name || slug), slug } };
+    } catch {
+      h = await api(`/v1/hadith/${slug}/${number}`);
+    }
     $("#hbody").innerHTML = `
       <div class="card" style="text-align:center;margin:10px 12px;padding:14px">
         <div class="hb-avatar" style="background:${m.color};margin-bottom:8px">${m.init}</div>
@@ -1198,7 +1308,9 @@ async function renderHadithNumber(view, slug, number) {
 async function renderDuaCategories(view) {
   view.innerHTML = `<div id="dlist"><div class="loading">Loading du'a categories…</div></div>`;
   try {
-    const cats = await api("/v1/duas/categories");
+    let cats;
+    try { cats = (await bundle("duas.json")).categories.map(c => ({ slug: c.slug, name: c.name })); }
+    catch { cats = await api("/v1/duas/categories"); }
     $("#dlist").innerHTML = cats.map(c => `
       <div class="item" data-slug="${c.slug}">
         <div class="surah-head"><span class="sname">${esc(c.name.trim())}</span><span class="snum">→</span></div>
@@ -1213,7 +1325,12 @@ async function renderDuas(view, slug, title) {
   view.innerHTML = `<button class="back" id="back">← All du'a categories</button><div id="dbody"><div class="loading">Loading…</div></div>`;
   $("#back").addEventListener("click", () => renderDuaCategories(view));
   try {
-    const duas = await api(`/v1/duas/${encodeURIComponent(slug)}`);
+    let duas;
+    try {
+      const cat = (await bundle("duas.json")).categories.find(c => c.slug === slug);
+      duas = cat ? cat.duas : null;
+    } catch {}
+    if (duas == null) duas = await api(`/v1/duas/${encodeURIComponent(slug)}`);
     $("#dbody").innerHTML = (duas || []).map(d => `
       <div class="ayah" style="cursor:default">
         <div style="font-weight:600;color:var(--gold);font-size:14px;margin-bottom:8px">${esc(d.title)}</div>
@@ -1322,7 +1439,7 @@ try { // Hijri date in the app bar — computed on-device, works offline
   if (el) el.textContent = "Prayer & Quran \u00b7 " + h;
 } catch (e) {}
 
-render("prayer");
+netBadge();
 
 
 // ================= INSTALL TO PHONE (PWA) =================
@@ -1763,6 +1880,8 @@ function ringAlarm(key) {
   if (key !== "test") setTimeout(() => render("prayer"), 4000);
 }
 
+// boot: render after every module & config is declared
+render("prayer");
 </script>
 </body>
 </html>
