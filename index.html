@@ -9,6 +9,19 @@
 <link rel="preconnect" href="https://ilm-api.vercel.app" />
 <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script>document.documentElement.dataset.theme = localStorage.getItem("ilm_theme") || "dark";</script>
+<script>
+window.__bootErrors = [];
+window.addEventListener("error", e => {
+  window.__bootErrors.push(e.message + " @" + (e.filename||"inline") + ":" + e.lineno + ":" + e.colno);
+  const v = document.getElementById("view");
+  if (v) v.insertAdjacentHTML("afterbegin", `<pre id="booterr" style="color:#e88;font-size:12px;white-space:pre-wrap">${e.message}\n${(e.stack||"").split("\n").slice(0,5).join("\n")}</pre>`);
+});
+window.addEventListener("unhandledrejection", e => {
+  const m = (e.reason && (e.reason.stack || e.reason.message)) || String(e.reason);
+  window.__bootErrors.push("rejection: " + m);
+});
+</script>
+
 <style>
 /* ============ design tokens (matching the Ilm Dictionary family) ============ */
 :root {
