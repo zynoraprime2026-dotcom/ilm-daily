@@ -1302,8 +1302,8 @@ async function renderHadithNumber(view, slug, number) {
     if (p) p.addEventListener("click", () => renderHadithNumber(view, slug, +h.prev_number));
     if (n) n.addEventListener("click", () => renderHadithNumber(view, slug, +h.next_number));
   } catch (e) {
-    $("#hbody").innerHTML = `<div class="empty">Hadith not found: ${esc(e.message)}<br><br><button class="btn ghost" id="hBack2">← Back to book</button></div>`;
-    document.getElementById("hBack2").addEventListener("click", () => renderHadithBook(view, slug));
+    $("#hbody").innerHTML = `<div class="empty">Hadith not found: ${esc(e.message)}<br><br><button class="btn ghost" id="hBackErr">← Back to book</button></div>`;
+    document.getElementById("hBackErr").addEventListener("click", () => renderHadithBook(view, slug));
   }
 }
 async function renderDuaCategories(view) {
