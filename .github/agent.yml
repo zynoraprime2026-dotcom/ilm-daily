@@ -18,3 +18,9 @@ questionCloseDays: 30      # close it as unanswered after this many
 duplicateScan: true        # weekly look for issues that repeat an older one
 duplicateMaxPerRun: 5      # cap on duplicate comments per sweep
 storyboardShots: 3         # frames rendered by /agent movie
+
+# Film and social production (/agent produce)
+production_shots: 4
+production_format: vertical
+production_narration: true
+production_subtitles: true
