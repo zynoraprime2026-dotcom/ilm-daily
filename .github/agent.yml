@@ -1,0 +1,20 @@
+# Runtime settings for the github-agent GitHub App.
+# Flat key: value lines only. Unknown keys are ignored and a malformed file
+# falls back to defaults, so a bad edit cannot break the agent.
+# Values below match the current defaults: edit them to tune behaviour.
+
+staleDays: 30              # an issue with no activity this long gets the stale nudge
+staleMaxPerRun: 5          # cap per nightly sweep so one run never floods a repo
+reviewOnSync: true         # review pull requests on open and on new pushes
+maxFiles: 40               # a diff touching more files than this is summarised, not read
+scopeMaxFiles: 12          # scope check flags a PR touching more files than this
+scopeMaxLines: 600         # ... or changing more lines than this
+welcome: true              # greet a first-time contributor once
+releaseNotes: true         # append a line to the rolling release notes on merge
+dependabotExplainer: true  # explain dependency bumps in plain English
+questionLabel: question    # label the unanswered-question sweep looks for
+questionNudgeDays: 14      # nudge a question after this many quiet days
+questionCloseDays: 30      # close it as unanswered after this many
+duplicateScan: true        # weekly look for issues that repeat an older one
+duplicateMaxPerRun: 5      # cap on duplicate comments per sweep
+storyboardShots: 3         # frames rendered by /agent movie
