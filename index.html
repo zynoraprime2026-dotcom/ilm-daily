@@ -284,7 +284,6 @@ h1 { font-weight: 800; font-size: 26px; margin-top: 4px; }
 </nav>
 <script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));</script>
 <script src="stories.js"></script>
-<script src="quran.js"></script>
 <script src="praytimes.js"></script>
 <script>
 /* Offline layer: bundled data (duas, hadith) + on-device prayer calc */
@@ -326,12 +325,35 @@ async function api(path, needsKey = true) {
   return data;
 }
 let loc = JSON.parse(localStorage.getItem("ilm_loc") || "null") || { lat: 5.30, lng: -2.00, name: "Tarkwa, Ghana" };
-// The full Quran ships inside the app (quran.js) — the sura list and every
-// ayah are always available offline; nothing needs to be downloaded first.
-const surahsCache = (typeof QURAN_PACK !== "undefined" && QURAN_PACK.surahs || []).map(s => ({
-  number: s.number, name_arabic: s.name_arabic, name_english: s.name_english,
-  name_transliteration: s.name_transliteration, revelation_place: s.revelation_place, ayah_count: s.ayah_count
-}));
+// The full Quran ships inside the app (quran.js) but it is 2.2 MB, so it is fetched
+// the first time the Quran tab opens instead of on every visit. The service worker
+// precaches it, so after that first open it is there offline too.
+let surahsCache = null;
+let quranLoading = null;
+function buildSurahCache() {
+  const pack = (typeof QURAN_PACK !== "undefined" && QURAN_PACK.surahs) || [];
+  surahsCache = pack.map(s => ({
+    number: s.number, name_arabic: s.name_arabic, name_english: s.name_english,
+    name_transliteration: s.name_transliteration, revelation_place: s.revelation_place, ayah_count: s.ayah_count
+  }));
+  return surahsCache;
+}
+function ensureQuran() {
+  if (typeof QURAN_PACK !== "undefined") { if (!surahsCache) buildSurahCache(); return Promise.resolve(); }
+  if (!quranLoading) {
+    quranLoading = new Promise((resolve, reject) => {
+      const el = document.createElement("script");
+      el.src = "quran.js";
+      el.onload = () => { buildSurahCache(); resolve(); };
+      el.onerror = () => {
+        quranLoading = null;
+        reject(new Error("The Quran could not be loaded. Check your connection and try again."));
+      };
+      document.head.appendChild(el);
+    });
+  }
+  return quranLoading;
+}
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 function fmtTime(iso) {
@@ -495,7 +517,8 @@ async function renderSurahList(view) {
   if (rr) rr.addEventListener("click", () => renderSurah(view, last.surah));
   view.querySelectorAll(".bmark").forEach(el => el.addEventListener("click", () => renderSurah(view, +el.dataset.s)));
   try {
-    if (!surahsCache) {
+    await ensureQuran();
+    if (!surahsCache || !surahsCache.length) {
       surahsCache = await api("/v1/quran/surahs");
       localStorage.setItem("ilm_surahs", JSON.stringify(surahsCache));
     }
@@ -629,6 +652,7 @@ async function renderSurah(view, n) {
   view.innerHTML = `<button class="back" id="back">← All surahs</button><div id="sbody"><div class="loading">Loading…</div></div>`;
   $("#back").addEventListener("click", () => renderSurahList(view));
   try {
+    await ensureQuran();
     const meta = surahsCache.find(s => s.number === n);
     const packed = (typeof QURAN_PACK !== "undefined" && QURAN_PACK.surahs || []).find(s => s.number === n);
     if (!packed) throw new Error("This surah is missing from the bundled Quran");

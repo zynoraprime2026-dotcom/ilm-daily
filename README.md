@@ -3,6 +3,13 @@
 Daily prayer times and Quran reader, powered by the Ilm API.
 Live at: https://zynoraprime2026-dotcom.github.io/ilm-daily/
 
+## Loading
+
+The Quran ships inside the app (`quran.js`, 2.2 MB) but is fetched the first time the
+Quran tab opens rather than on every visit, so someone checking prayer times does not
+pay for it. The service worker precaches it, so it is there offline after that first
+open. `ensureQuran()` in `index.html` owns that switch.
+
 ## Checks and tests
 
 The app ships as one HTML shell plus three global scripts, which all share a single
