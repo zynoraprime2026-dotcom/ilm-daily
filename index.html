@@ -376,11 +376,29 @@ function render(tab) {
   else if (tab === "duas") renderDuaCategories(view);
   else if (tab === "stories") renderStories(view);
 }
+const METHOD_KEY = "ilm_method", ASR_KEY = "ilm_asr";
+const prayerMethod = () => localStorage.getItem(METHOD_KEY) || "MWL";
+const prayerAsr = () => localStorage.getItem(ASR_KEY) || "standard";
 async function renderPrayer(view) {
+  const methods = window.prayTimesMethods || {};
+  const methodOpts = Object.entries(methods)
+    .map(([k, v]) => `<option value="${k}"${k === prayerMethod() ? " selected" : ""}>${esc(v.label)}</option>`).join("");
+  const selStyle = "background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:13px";
   view.innerHTML = `
     <div class="locbar">
       <input id="locname" value="${esc(loc.name)}" placeholder="Your location name" />
       <button class="btn ghost" id="gps">Use GPS</button>
+    </div>
+    <div class="card" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <label style="font-size:13px;color:var(--muted)">Method
+        <select id="ptMethod" style="${selStyle}">${methodOpts}</select>
+      </label>
+      <label style="font-size:13px;color:var(--muted)">Asr
+        <select id="ptAsr" style="${selStyle}">
+          <option value="standard"${prayerAsr() === "standard" ? " selected" : ""}>Standard (Shafi'i, Maliki, Hanbali)</option>
+          <option value="hanafi"${prayerAsr() === "hanafi" ? " selected" : ""}>Hanafi</option>
+        </select>
+      </label>
     </div>
     <div id="prayer-body"><div class="loading">Loading prayer times…</div></div>
     <p class="note">Times shown in your device's local time. Default location is Tarkwa, Ghana.</p>
@@ -398,9 +416,17 @@ async function renderPrayer(view) {
     loc.name = e.target.value || "My location";
     localStorage.setItem("ilm_loc", JSON.stringify(loc));
   });
+  $("#ptMethod").addEventListener("change", (e) => {
+    localStorage.setItem(METHOD_KEY, e.target.value);
+    renderPrayer(view);
+  });
+  $("#ptAsr").addEventListener("change", (e) => {
+    localStorage.setItem(ASR_KEY, e.target.value);
+    renderPrayer(view);
+  });
   const body = $("#prayer-body");
   try {
-    const calc = window.prayTimes(new Date(), loc.lat, loc.lng);
+    const calc = window.prayTimes(new Date(), loc.lat, loc.lng, undefined, { method: prayerMethod(), asr: prayerAsr() });
     await new Promise(r => setTimeout(r)); // let boot-time declarations finish
     const times = {};
     for (const k in calc) {
