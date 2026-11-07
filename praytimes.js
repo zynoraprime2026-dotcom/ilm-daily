@@ -23,8 +23,23 @@
     return { decl: asin(sin(e) * sin(L)), eqT: q / 15 - RA };
   }
 
+  // Calculation methods. Fajr/Isha are sun angles below the horizon; Umm al-Qura
+  // uses a fixed 90 minutes after Maghrib instead of an Isha angle.
+  const METHODS = {
+    MWL:       { label: "Muslim World League", fajr: 18, isha: 17 },
+    ISNA:      { label: "ISNA (North America)", fajr: 15, isha: 15 },
+    Egypt:     { label: "Egyptian Authority", fajr: 19.5, isha: 17.5 },
+    Karachi:   { label: "Univ. of Islamic Sciences, Karachi", fajr: 18, isha: 18 },
+    UmmAlQura: { label: "Umm al-Qura (Makkah)", fajr: 18.5, isha: null, ishaInterval: 90 },
+    Dubai:     { label: "Dubai", fajr: 18.2, isha: 18.2 },
+    Turkey:    { label: "Diyanet (Turkey)", fajr: 18, isha: 17 },
+    Tehran:    { label: "Tehran", fajr: 17.7, isha: 14 }
+  };
+
   // times in local hours; tz = hours offset from UTC (e.g. Ghana = 0)
-  function computeTimes(date, lat, lng, tz) {
+  function computeTimes(date, lat, lng, tz, opts) {
+    const method = METHODS[(opts && opts.method) || "MWL"] || METHODS.MWL;
+    const asrFactor = (opts && opts.asr) === "hanafi" ? 2 : 1;
     const jdate = julian(date.getFullYear(), date.getMonth() + 1, date.getDate()) - lng / (15 * 24);
     const jnoon = jdate + 0.5; // noon of that julian date at 0h
     const { decl, eqT } = sunPos(jnoon + 0.5 - lng / (15 * 24) * 0);
@@ -34,19 +49,19 @@
       return dir === "ccw" ? midDay - t : midDay + t;
     };
     // Asr (Shafi'i, factor 1): shadow length 1 → sun altitude = arccot(1 + tan|lat - decl|)
-    const asrAltitude = atan2(1, 1 + tan(Math.abs(lat - decl)));
+    const asrAltitude = atan2(1, asrFactor + tan(Math.abs(lat - decl)));
     const sunAltTime = (alt, dir) => {
       const t = (1 / 15) * acos((sin(alt) - sin(decl) * sin(lat)) / (cos(decl) * cos(lat)));
       return dir === "ccw" ? midDay - t : midDay + t;
     };
     let asr;
     // MWL: Fajr 18°, Isha 17°. Sunrise/sunset: altitude -0.833 (refraction).
-    let fajr = angleTime(18, "ccw");
+    let fajr = angleTime(method.fajr, "ccw");
     let sunrise = sunAltTime(-0.833, "ccw");
     let dhuhr = midDay + 1 / 60; // small safety
     asr = sunAltTime(asrAltitude, "cw");
     let maghrib = sunAltTime(-0.833, "cw");
-    let isha = angleTime(17, "cw");
+    let isha = method.ishaInterval ? maghrib + method.ishaInterval / 60 : angleTime(method.isha, "cw");
     const toClock = t => { t = fix(t + tz - lng / 15, 24); return t; };
     return {
       fajr: toClock(fajr), sunrise: toClock(sunrise), dhuhr: toClock(dhuhr),
@@ -55,9 +70,9 @@
   }
 
   // returns { fajr, sunrise, dhuhr, asr, maghrib, isha } as "HH:MM" (24h) strings
-  window.prayTimes = function (date, lat, lng, tzOffsetHours) {
+  window.prayTimes = function (date, lat, lng, tzOffsetHours, opts) {
     const tz = tzOffsetHours !== undefined ? tzOffsetHours : -date.getTimezoneOffset() / 60;
-    const t = computeTimes(date, lat, lng, tz);
+    const t = computeTimes(date, lat, lng, tz, opts);
     const fmt = h => {
       h = fix(h + 0.5 / 60, 24); // round half-minute up
       const hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
@@ -67,4 +82,5 @@
     for (const k of ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"]) out[k] = fmt(t[k]);
     return out;
   };
+  window.prayTimesMethods = METHODS;
 })();
