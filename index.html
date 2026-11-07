@@ -284,6 +284,7 @@ h1 { font-weight: 800; font-size: 26px; margin-top: 4px; }
 </nav>
 <script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));</script>
 <script src="stories.js"></script>
+<script src="daily-hadith.js"></script>
 <script src="praytimes.js"></script>
 <script>
 /* Offline layer: bundled data (duas, hadith) + on-device prayer calc */
@@ -1112,12 +1113,39 @@ function renderScholarCards(view, SCHOLARS, focusId) {
 }
 
 function renderHadith(view) {
+  const LAST_READ_KEY = "ilm_hadith_last";
+  const DAY = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 864e5);
+  const daily = (typeof DAILY_HADITH !== "undefined" && DAILY_HADITH.length) ? DAILY_HADITH[DAY % DAILY_HADITH.length] : null;
+  const last = JSON.parse(localStorage.getItem(LAST_READ_KEY) || "null");
+  const topics = (typeof DAILY_HADITH !== "undefined" && DAILY_HADITH.length)
+    ? [...new Set(DAILY_HADITH.map(d => d.topic))] : [];
   view.innerHTML = `
     <div class="searchbar">
       <input id="hsearch" placeholder="Search the hadith library by keyword" />
       <button class="btn" id="hgo">Search</button>
       <button class="btn ghost" id="hScholars">Scholars</button>
     </div>
+    ${last ? `<div class="card" style="margin:10px 12px;padding:12px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div><b style="color:var(--gold)">\u23F1 Last read</b>
+        <div style="font-size:13px;color:var(--muted);margin-top:2px">${esc(last.name)} No. ${esc(last.n)}</div></div>
+      <button class="btn" id="resumeHadith">Continue</button>
+    </div>` : ""}
+    ${daily ? `<div class="card" id="dailyCard" style="margin:10px 12px;padding:14px">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px">
+        <b style="color:var(--gold)">\u2728 Daily Hadith</b>
+        <span class="pill">${esc(daily.topic)}</span>
+      </div>
+      <div class="ar" style="font-size:20px;line-height:1.9;margin-bottom:8px">${esc(daily.ar)}</div>
+      <div class="tr" style="color:var(--text)" id="dailyText">${esc(daily.en)}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost" id="dailyMore" style="font-size:12px;padding:4px 10px">Read more \u25BE</button>
+        <span style="font-size:12px;color:var(--muted)">${daily.s === "bukhari" ? "Sahih al-Bukhari" : "Sahih Muslim"} \u00B7 No. ${esc(daily.n)}</span>
+      </div>
+    </div>` : ""}
+    ${topics.length ? `<div style="padding:0 12px;margin-top:14px"><div class="hgrid-head" style="padding:0">Explore by topic</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+        ${topics.map(t => `<button class="btn ghost htopic" data-t="${esc(t)}" style="font-size:12px;padding:6px 12px">${esc(t)}</button>`).join("")}
+      </div></div>` : ""}
     <div id="hresults">
       <div class="hgrid-head">All Books</div>
       <div id="hbooks"><div class="loading">Loading books…</div></div>
@@ -1226,6 +1254,28 @@ function renderHadith(view) {
   };
   $("#hgo").addEventListener("click", run);
   $("#hsearch").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+  const resume = $("#resumeHadith");
+  if (resume && last) resume.addEventListener("click", () => renderHadithNumber(view, last.slug, last.n));
+  const more = $("#dailyMore");
+  if (more && daily) more.addEventListener("click", () => {
+    const el = $("#dailyText");
+    const open = el.dataset.open === "1";
+    el.dataset.open = open ? "0" : "1";
+    el.textContent = open ? String(daily.en).slice(0, 220) : daily.en;
+    more.textContent = open ? "Read more \u25BE" : "Show less \u25B4";
+  });
+  if (daily) {
+    const dt = $("#dailyText");
+    if (dt && String(daily.en).length > 220) dt.textContent = String(daily.en).slice(0, 220) + "\u2026";
+  }
+  const TOPIC_QUERY = { Brotherhood: "brother", Character: "manners", Charity: "charity", Faith: "faith",
+    Family: "parents", Judgement: "paradise", Knowledge: "knowledge", Patience: "patience",
+    Prayer: "prayer", Remembrance: "remember Allah" };
+  view.querySelectorAll(".htopic").forEach(b => b.addEventListener("click", () => {
+    $("#hsearch").value = TOPIC_QUERY[b.dataset.t] || b.dataset.t;
+    run();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }));
   $("#hScholars").addEventListener("click", () => renderScholars(view));
 }
 const OFFLINE_HADITH_S = { bukhari: 1, muslim: 1, nasai: 1, abudawud: 1, tirmidhi: 1, ibnmajah: 1 };
@@ -1296,6 +1346,11 @@ async function renderHadithBook(view, slug, page = 1) {
 }
 async function renderHadithNumber(view, slug, number) {
   const m = hbMeta(slug);
+  try {
+    const BOOK_NAMES = { bukhari: "Sahih al-Bukhari", muslim: "Sahih Muslim", nasai: "Sunan an-Nasa'i",
+      abudawud: "Sunan Abu Dawud", tirmidhi: "Jami at-Tirmidhi", ibnmajah: "Sunan Ibn Majah" };
+    localStorage.setItem("ilm_hadith_last", JSON.stringify({ slug, n: String(number), name: BOOK_NAMES[slug] || m.name || slug, ts: Date.now() }));
+  } catch (e) {}
   view.innerHTML = `<button class="back" id="back">← Back to ${esc(slug)}</button><div id="hbody"><div class="loading">Loading…</div></div>`;
   $("#back").addEventListener("click", () => renderHadithBook(view, slug));
   try {
