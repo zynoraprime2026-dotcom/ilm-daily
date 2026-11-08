@@ -1,5 +1,5 @@
 // Ilm Daily service worker — offline shell + offline Quran audio + salat alarm support.
-const CACHE = 'ilm-daily-v16';
+const CACHE = 'ilm-daily-v17';
 const TAFSIR_CACHE = 'ilm-tafsir';
 const AUDIO_CACHE = 'ilm-quran-audio';
 const SHELL = ['./', './index.html', './stories.js', './quran.js', './daily-hadith.js', './praytimes.js', './duas.json', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
@@ -11,7 +11,7 @@ self.addEventListener('install', e => {
 });
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== AUDIO_CACHE && k !== 'ilm-hadith-audio' && k !== 'ilm-hadith-text' && k !== TAFSIR_CACHE).map(k => caches.delete(k))))
+    caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== AUDIO_CACHE && k !== 'ilm-quran-tr' && k !== 'ilm-hadith-audio' && k !== 'ilm-hadith-text' && k !== TAFSIR_CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

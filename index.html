@@ -698,6 +698,7 @@ async function renderSurah(view, n) {
             <option value="islam_sobhi"${localStorage.getItem("ilm_reciter") === "islam_sobhi" ? " selected" : ""}>Islam Sobhi</option>
           </select>
           <button class="btn" id="playSurah">▶ Play surah</button>
+          <select id="qlang" title="Quran translation language" style="max-width:210px"></select>
           <button class="btn ghost" id="dlSurah">⬇ Save offline</button>
           <button class="btn ghost" id="rmSurah" style="display:none">🗑 Remove offline</button>
           <label class="rnote" style="margin:0;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="dsQuran"> 64kbps data saver</label>
@@ -743,6 +744,8 @@ async function renderSurah(view, n) {
       localStorage.setItem("ilm_reciter", e.target.value);
       stopQuranAudio();
       applyReciterUI(n);
+    applyQuranLanguage(n);
+      applyQuranLanguage(n);
     });
     $("#dlSurah").addEventListener("click", () => {
       saveSurahOffline(n, meta ? meta.ayah_count : data.ayahs.length, $("#dlSurah"));
@@ -1644,6 +1647,77 @@ const AUDIO_CACHE = "ilm-quran-audio";
 const offlineKey = surah => `${curReciter()}_${surah}`;
 const offlineMap = () => JSON.parse(localStorage.getItem("ilm_offline") || "{}");
 const isSavedOffline = surah => !!offlineMap()[offlineKey(surah)];
+// ---- Quran translation languages: 10 editions, cached for offline reading ----
+const QLANGS = [
+  { v: "en", name: "English \u2014 Saheeh Intl", edition: "", dir: "ltr" },
+  { v: "en-abdelhaleem", name: "English \u2014 Abdel Haleem", edition: "eng-abdelhaleem", dir: "ltr" },
+  { v: "en-yusufali", name: "English \u2014 Yusuf Ali", edition: "eng-yusufaliorig", dir: "ltr" },
+  { v: "fr", name: "Fran\u00e7ais", edition: "fra-muhammadhameedu", dir: "ltr" },
+  { v: "ha", name: "Hausa", edition: "hau-abubakarmahmood", dir: "ltr" },
+  { v: "sw", name: "Kiswahili", edition: "swa-alimuhsinalbarw", dir: "ltr" },
+  { v: "ur", name: "\u0627\u0631\u062f\u0648", edition: "urd-ahmedali", dir: "rtl" },
+  { v: "tr", name: "T\u00fcrk\u00e7e", edition: "tur-abdulbakigolpin", dir: "ltr" },
+  { v: "id", name: "Bahasa Indonesia", edition: "ind-indonesianislam", dir: "ltr" },
+  { v: "yo", name: "Yor\u00f9b\u00e1", edition: "yor-shaykhaburahima", dir: "ltr" }
+];
+const TR_CACHE = "ilm-quran-tr";
+const curQLang = () => localStorage.getItem("ilm_quran_lang") || "en";
+const origTr = new Map();
+async function translationFor(edition, surah) {
+  const url = `https://cdn.jsdelivr.net/gh/fawazahmed0/quran-api@1/editions/${edition}/${surah}.json`;
+  try {
+    const c = await caches.open(TR_CACHE);
+    const hit = await c.match(url);
+    if (hit) return await hit.json();
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    await c.put(url, r.clone());
+    return await r.json();
+  } catch (e) { return null; }
+}
+async function applyQuranLanguage(surah) {
+  const sel = document.getElementById("qlang");
+  if (!sel) return;
+  if (!sel.dataset.wired) {
+    sel.innerHTML = QLANGS.map(l => `<option value="${l.v}">${l.name}</option>`).join("");
+    sel.value = curQLang();
+    sel.dataset.wired = "1";
+    sel.addEventListener("change", () => {
+      localStorage.setItem("ilm_quran_lang", sel.value);
+      applyQuranLanguage(surah);
+    });
+    sel.value = curQLang();
+  }
+  const nodes = Array.from(document.querySelectorAll(".ayah .tr"));
+  if (!nodes.length) return;
+  nodes.forEach(x => {
+    const row = x.closest(".ayah");
+    if (row && !origTr.has(row.dataset.a)) origTr.set(row.dataset.a, x.textContent);
+  });
+  const lang = QLANGS.find(l => l.v === curQLang()) || QLANGS[0];
+  if (!lang.edition) {
+    nodes.forEach(x => {
+      const row = x.closest(".ayah");
+      const o = row && origTr.get(row.dataset.a);
+      if (o) x.textContent = o;
+      x.dir = "ltr"; x.style.fontSize = ""; x.style.lineHeight = "";
+    });
+    return;
+  }
+  const pack = await translationFor(lang.edition, surah);
+  const verses = (pack && pack.chapter) || null;
+  if (!verses || !verses.length) return;
+  const byVerse = new Map(verses.map(v => [v.verse, v.text]));
+  nodes.forEach(x => {
+    const row = x.closest(".ayah");
+    const t = row ? byVerse.get(+row.dataset.a) : null;
+    if (t) x.textContent = t;
+    x.dir = lang.dir;
+    x.style.fontSize = lang.dir === "rtl" ? "19px" : "";
+    x.style.lineHeight = lang.dir === "rtl" ? "2.1" : "";
+  });
+}
+
 function applyReciterUI(surah) {
   const full = !!curRecInfo().fullSurah;
   document.querySelectorAll(".aplay").forEach(b => b.style.display = full ? "none" : "flex");
