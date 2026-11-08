@@ -767,6 +767,7 @@ async function renderSurah(view, n) {
           <button class="btn" id="playSurah">▶ Play surah</button>
           <select id="qlang" title="Quran translation language" style="max-width:210px"></select>
           <button class="btn ghost" id="dlSurah">⬇ Save offline</button>
+          <button class="btn ghost" id="dlTafsir" style="display:none">⬇ Save tafsir offline</button>
           <button class="btn ghost" id="rmSurah" style="display:none">🗑 Remove offline</button>
           <label class="rnote" style="margin:0;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="dsQuran"> 64kbps data saver</label>
           <span class="rnote" id="qStorage" style="margin:0"></span>
@@ -817,6 +818,15 @@ async function renderSurah(view, n) {
     $("#dlSurah").addEventListener("click", () => {
       saveSurahOffline(n, meta ? meta.ayah_count : data.ayahs.length, $("#dlSurah"));
     });
+    const dt = document.getElementById("dlTafsir");
+    if (dt) {
+      if (TAFSIR_OFFLINE.has(+n)) { dt.style.display = "none"; }
+      else {
+        dt.style.display = "";
+        dt.textContent = extraTafsirSet().has(+n) ? "✓ Tafsir offline — tap to remove" : "⬇ Save tafsir offline";
+        dt.addEventListener("click", () => saveTafsirPack(n, meta ? meta.ayah_count : data.ayahs.length, dt));
+      }
+    }
     const memBtn = document.getElementById("memStart");
     if (memBtn) memBtn.addEventListener("click", () => {
       if (memState) { stopQuranAudio(); return; }
@@ -893,13 +903,76 @@ async function toggleWords(el, surah, ayah) {
    the commentators skip) still falls through to ilm-api as before. */
 const TAFSIR_OFFLINE = new Set([1, 18, 36, 55, 56, 67].concat(Array.from({ length: 37 }, (_, i) => 78 + i)));
 const TAFSIR_PACK_CACHE = new Map();
+// Surahs outside the bundled 43 can be downloaded by hand: one tap pulls every
+// ayah's commentary into its own cache bucket, so a student of Al-Baqarah gets
+// the same offline tafsir as a reader of Juz 30, at their own data cost.
+const TAFSIR_EXTRA_CACHE = "ilm-tafsir-extra";
+const TAFSIR_EXTRA_URL = n => `https://ilm-daily.local/tafsir-extra/${n}.json`;
+const extraTafsirSet = () => new Set(JSON.parse(localStorage.getItem("ilm_tafsir_extra") || "[]"));
+async function cachedTafsirPack(n) {
+  try {
+    const c = await caches.open(TAFSIR_EXTRA_CACHE);
+    const hit = await c.match(TAFSIR_EXTRA_URL(n));
+    if (!hit) return null;
+    const d = await hit.json();
+    return d.ayahs || {};
+  } catch (e) { return null; }
+}
+async function saveTafsirPack(surah, ayahCount, btn) {
+  const n = Number(surah);
+  const set = extraTafsirSet();
+  btn.disabled = true;
+  try {
+    if (set.has(n)) {
+      const c = await caches.open(TAFSIR_EXTRA_CACHE);
+      await c.delete(TAFSIR_EXTRA_URL(n));
+      set.delete(n);
+      localStorage.setItem("ilm_tafsir_extra", JSON.stringify([...set]));
+      TAFSIR_PACK_CACHE.delete("x" + n);
+      btn.textContent = "⬇ Save tafsir offline";
+      btn.disabled = false;
+      return;
+    }
+    const ayahs = {};
+    let done = 0;
+    const queue = Array.from({ length: ayahCount }, (_, i) => i + 1);
+    const worker = async () => {
+      while (queue.length) {
+        const a = queue.shift();
+        try {
+          const d = await api(`/v1/tafsir/${n}/${a}`);
+          if (d && d.tafsir && d.tafsir.length) ayahs[a] = d.tafsir;
+        } catch (_) {}
+        done++;
+        if (done % 4 === 0 || !queue.length) btn.textContent = `⬇ Saving tafsir ${done}/${ayahCount}…`;
+      }
+    };
+    await Promise.all(Array.from({ length: 4 }, worker));
+    const c = await caches.open(TAFSIR_EXTRA_CACHE);
+    await c.put(TAFSIR_EXTRA_URL(n), new Response(JSON.stringify({ surah: n, ayahs }), { headers: { "content-type": "application/json" } }));
+    set.add(n);
+    localStorage.setItem("ilm_tafsir_extra", JSON.stringify([...set]));
+    TAFSIR_PACK_CACHE.delete("x" + n);
+    const got = Object.keys(ayahs).length;
+    btn.textContent = `✓ Tafsir offline (${got}/${ayahCount})`;
+  } catch (e) {
+    btn.textContent = "Tafsir pack failed — tap to retry";
+  }
+  btn.disabled = false;
+}
 function tafsirPack(surah) {
   const n = Number(surah);
-  if (!TAFSIR_OFFLINE.has(n)) return Promise.resolve(null);
-  if (!TAFSIR_PACK_CACHE.has(n)) {
-    TAFSIR_PACK_CACHE.set(n, bundle(`tafsir/${n}.json`).then(d => d.ayahs || {}).catch(() => null));
+  if (TAFSIR_OFFLINE.has(n)) {
+    if (!TAFSIR_PACK_CACHE.has(n)) {
+      TAFSIR_PACK_CACHE.set(n, bundle(`tafsir/${n}.json`).then(d => d.ayahs || {}).catch(() => null));
+    }
+    return TAFSIR_PACK_CACHE.get(n);
   }
-  return TAFSIR_PACK_CACHE.get(n);
+  if (extraTafsirSet().has(n)) {
+    if (!TAFSIR_PACK_CACHE.has("x" + n)) TAFSIR_PACK_CACHE.set("x" + n, cachedTafsirPack(n));
+    return TAFSIR_PACK_CACHE.get("x" + n);
+  }
+  return Promise.resolve(null);
 }
 async function loadTafsir(el, surah, ayah) {
   const target = el.querySelector(".tafsir-sec");
