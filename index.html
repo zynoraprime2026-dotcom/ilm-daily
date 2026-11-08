@@ -690,7 +690,7 @@ async function saveWholeQuranOffline(btn) {
         : `${savedSurahCount()}/114 saved — tap again to retry the failed ones`);
   }
 }
-async // ---- Ayah search across the bundled Quran: offline, diacritic-insensitive ----
+// ---- Ayah search across the bundled Quran: offline, diacritic-insensitive ----
 const AR_SKIP = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640\u0653-\u0655]/g;
 function normAr(x) {
   return String(x || "").replace(AR_SKIP, "")
@@ -719,7 +719,7 @@ function searchAyahs(q, limit) {
   }
   return out;
 }
-function renderSurah(view, n) {
+async function renderSurah(view, n) {
   tafsirPack(n).catch(() => {});
   view.innerHTML = `<button class="back" id="back">← All surahs</button><div id="sbody"><div class="loading">Loading…</div></div>`;
   $("#back").addEventListener("click", () => renderSurahList(view));
