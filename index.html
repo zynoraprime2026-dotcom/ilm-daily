@@ -532,7 +532,7 @@ async function renderSurahList(view) {
         <span style="font-size:13px">${esc((m.text || "").slice(0, 70))}${(m.text || "").length > 70 ? "…" : ""}</span>
         <span class="pill">${esc(m.name)} ${m.surah}:${m.ayah}</span></div>`).join("")}
     </div>` : "";
-  view.innerHTML = `<div class="searchbar"><input id="qsearch" placeholder="Search surah — name or number" /></div>
+  view.innerHTML = `<div class="searchbar"><input id="qsearch" placeholder="Search surah, ayah or translation" /></div>
     <div class="card" style="margin:10px 12px;padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <button class="btn ghost" id="dlAll">⬇ Save whole Quran offline</button>
       <span id="dlAllStatus" style="font-size:12px;color:var(--muted)">${savedSurahCount()} of 114 surahs have audio saved · Quran text is always offline</span>
@@ -550,19 +550,34 @@ async function renderSurahList(view) {
       localStorage.setItem("ilm_surahs", JSON.stringify(surahsCache));
     }
     const draw = (filter = "") => {
-      const f = filter.toLowerCase();
+      const f = filter.trim().toLowerCase();
       const list = surahsCache.filter(s =>
         !f || s.name_english.toLowerCase().includes(f) || s.name_transliteration.toLowerCase().includes(f) || String(s.number) === f);
-      $("#qlist").innerHTML = list.length ? list.map(s => `
+      const hits = f.length >= 3 ? searchAyahs(filter.trim(), 30) : [];
+      const hitsHTML = hits.length ? `<div class="card" style="margin:10px 12px;padding:10px 14px">
+        <div style="color:var(--gold);font-weight:600;margin-bottom:4px">${hits.length} ayah match${hits.length === 1 ? "" : "es"}</div>
+        ${hits.map(h => `<div class="ayah-hit" data-s="${h.surah}" data-a="${h.ayah}" style="padding:9px 0;border-bottom:1px solid var(--border);cursor:pointer">
+          <div style="font-size:12px;color:var(--muted)">${esc(h.surahName)} · ${h.surah}:${h.ayah}</div>
+          <div dir="rtl" style="font-size:18px;margin-top:3px;line-height:1.9">${esc(h.arabic)}</div>
+          <div style="font-size:13px;color:var(--muted);margin-top:3px">${esc((h.translation || "").slice(0, 170))}</div>
+        </div>`).join("")}
+      </div>` : "";
+      $("#qlist").innerHTML = hitsHTML + (list.length ? list.map(s => `
         <div class="item" data-n="${s.number}">
           <div class="surah-head">
             <span class="snum">${s.number}</span>
             <span class="sname">${esc(s.name_transliteration)} <span class="sname-en">· ${esc(s.name_english)} · ${s.ayah_count} ayahs</span></span>
             <span class="sar">${s.name_arabic}</span>
           </div>
-        </div>`).join("") : `<div class="empty">No surah matches "${esc(filter)}"</div>`;
+        </div>`).join("") : (hits.length ? "" : `<div class="empty">Nothing matches "${esc(filter)}"</div>`));
       $("#qlist").querySelectorAll(".item").forEach(el =>
         el.addEventListener("click", () => renderSurah(view, +el.dataset.n)));
+      $("#qlist").querySelectorAll(".ayah-hit").forEach(el =>
+        el.addEventListener("click", async () => {
+          await renderSurah(view, +el.dataset.s);
+          const row = document.querySelector(`.ayah[data-a="${el.dataset.a}"]`);
+          if (row) { row.classList.add("playing"); row.scrollIntoView({ block: "center", behavior: "smooth" }); }
+        }));
     };
     draw();
     $("#qsearch").addEventListener("input", e => draw(e.target.value));
@@ -675,7 +690,36 @@ async function saveWholeQuranOffline(btn) {
         : `${savedSurahCount()}/114 saved — tap again to retry the failed ones`);
   }
 }
-async function renderSurah(view, n) {
+async // ---- Ayah search across the bundled Quran: offline, diacritic-insensitive ----
+const AR_SKIP = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640\u0653-\u0655]/g;
+function normAr(x) {
+  return String(x || "").replace(AR_SKIP, "")
+    .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627")
+    .replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647")
+    .replace(/\s+/g, " ").trim();
+}
+function normEn(x) {
+  return String(x || "").toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, " ").replace(/\s+/g, " ").trim();
+}
+function searchAyahs(q, limit) {
+  const pack = (typeof QURAN_PACK !== "undefined" && QURAN_PACK.surahs) || [];
+  const arabic = /[\u0600-\u06FF]/.test(q);
+  const needle = arabic ? normAr(q) : normEn(q);
+  if (needle.length < 3 || !pack.length) return [];
+  const out = [];
+  for (const s of pack) {
+    const meta = (surahsCache || []).find(x => x.number === s.number) || {};
+    for (const [n, ar, tr] of s.ayahs) {
+      const hay = arabic ? normAr(ar) : normEn(tr);
+      if (hay.includes(needle)) {
+        out.push({ surah: s.number, ayah: n, arabic: ar, translation: tr || "", surahName: meta.name_transliteration || "Surah " + s.number });
+        if (out.length >= limit) return out;
+      }
+    }
+  }
+  return out;
+}
+function renderSurah(view, n) {
   tafsirPack(n).catch(() => {});
   view.innerHTML = `<button class="back" id="back">← All surahs</button><div id="sbody"><div class="loading">Loading…</div></div>`;
   $("#back").addEventListener("click", () => renderSurahList(view));
