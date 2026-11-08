@@ -699,6 +699,9 @@ async function renderSurah(view, n) {
           </select>
           <button class="btn" id="playSurah">▶ Play surah</button>
           <button class="btn ghost" id="dlSurah">⬇ Save offline</button>
+          <button class="btn ghost" id="rmSurah" style="display:none">🗑 Remove offline</button>
+          <label class="rnote" style="margin:0;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="dsQuran"> 64kbps data saver</label>
+          <span class="rnote" id="qStorage" style="margin:0"></span>
         </div>
       </div>
       <div class="card" id="memCard">
@@ -1611,17 +1614,21 @@ netBadge();
 
 // ================= QURAN AUDIO (everyayah.com + mp3quran.net CDNs) =================
 const RECITERS = {
-  alafasy: { name: "Mishary Alafasy", dir: "Alafasy_128kbps" },
-  husary: { name: "Mahmoud Al-Husary", dir: "Husary_128kbps" },
-  minshawi: { name: "Al-Minshawi", dir: "Minshawy_Murattal_128kbps" },
+  alafasy: { name: "Mishary Alafasy", dir: "Alafasy_128kbps", dir64: "Alafasy_64kbps" },
+  husary: { name: "Mahmoud Al-Husary", dir: "Husary_128kbps", dir64: "Husary_64kbps" },
+  minshawi: { name: "Al-Minshawi", dir: "Minshawy_Murattal_128kbps", dir64: "" },
   islam_sobhi: { name: "Islam Sobhi", fullSurah: true }
 };
 let qAudio = null;
 const curReciter = () => localStorage.getItem("ilm_reciter") || "alafasy";
 const curRecInfo = () => RECITERS[curReciter()] || RECITERS.alafasy;
 const pad3 = v => String(v).padStart(3, "0");
+// data saver: the 64kbps folders halve offline storage at no real cost to recitation
+const dataSaver = () => localStorage.getItem("ilm_data_saver") === "1";
 function ayahURL(surah, ayah) {
-  return `https://everyayah.com/data/${curRecInfo().dir}/${pad3(surah)}${pad3(ayah)}.mp3`;
+  const r = curRecInfo();
+  const dir = (dataSaver() && r.dir64) ? r.dir64 : r.dir;
+  return `https://everyayah.com/data/${dir}/${pad3(surah)}${pad3(ayah)}.mp3`;
 }
 function surahAudioURL(surah) {
   return `https://cdn.mp3quran.net/audio/islam-sobhi/r1/${pad3(surah)}.mp3`;
@@ -1651,6 +1658,70 @@ function applyReciterUI(surah) {
     dl.textContent = saved ? "✓ Saved offline" : "⬇ Save offline";
     dl.disabled = false;
     dl.classList.toggle("saved", saved);
+  }
+  const rm = document.getElementById("rmSurah");
+  if (rm) rm.style.display = isSavedOffline(surah) ? "" : "none";
+  const ds = document.getElementById("dsQuran");
+  if (ds) ds.checked = dataSaver();
+  wireOfflineTools(surah);
+  showSurahStorage(surah);
+}
+// ---- Offline tools: storage meter, remove a saved surah, 64kbps data saver ----
+function surahCachePrefixes(surah) {
+  const r = curRecInfo();
+  return [r.dir, r.dir64].filter(Boolean).map(d => `/data/${d}/${pad3(surah)}`);
+}
+async function surahOfflineBytes(surah) {
+  if (!("caches" in window)) return { bytes: 0, n: 0 };
+  try {
+    const c = await caches.open(AUDIO_CACHE);
+    const keys = await c.keys();
+    const pre = surahCachePrefixes(surah);
+    let bytes = 0, n = 0;
+    for (const req of keys) {
+      if (!pre.some(x => req.url.includes(x))) continue;
+      n++;
+      const res = await c.match(req);
+      const cl = res && res.headers.get("content-length");
+      if (cl) bytes += +cl;
+    }
+    return { bytes, n };
+  } catch (e) { return { bytes: 0, n: 0 }; }
+}
+async function showSurahStorage(surah) {
+  const el = document.getElementById("qStorage");
+  if (!el) return;
+  if (!isSavedOffline(surah)) {
+    el.textContent = dataSaver() ? "whole Quran \u2248 150 MB at 64kbps" : "whole Quran \u2248 300 MB at 128kbps";
+    return;
+  }
+  const { bytes, n } = await surahOfflineBytes(surah);
+  el.textContent = `\u2713 ${n} ayah files on this device, ${(bytes / 1048576).toFixed(1)} MB`;
+}
+async function removeSurahOffline(surah, btn) {
+  if (!("caches" in window)) return;
+  btn.disabled = true; btn.textContent = "Removing\u2026";
+  try {
+    const c = await caches.open(AUDIO_CACHE);
+    const keys = await c.keys();
+    const pre = surahCachePrefixes(surah);
+    for (const req of keys) if (pre.some(x => req.url.includes(x))) await c.delete(req);
+    const off = offlineMap(); delete off[offlineKey(surah)];
+    localStorage.setItem("ilm_offline", JSON.stringify(off));
+    applyReciterUI(surah);
+  } catch (e) { btn.textContent = "Remove failed \u2014 retry"; }
+  btn.disabled = false;
+}
+function wireOfflineTools(surah) {
+  const rm = document.getElementById("rmSurah");
+  if (rm && !rm.dataset.wired) { rm.dataset.wired = "1"; rm.addEventListener("click", () => removeSurahOffline(surah, rm)); }
+  const ds = document.getElementById("dsQuran");
+  if (ds && !ds.dataset.wired) {
+    ds.dataset.wired = "1";
+    ds.addEventListener("change", () => {
+      localStorage.setItem("ilm_data_saver", ds.checked ? "1" : "0");
+      applyReciterUI(surah);
+    });
   }
 }
 async function saveSurahOffline(surah, totalAyahs, btn) {
