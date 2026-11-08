@@ -1650,6 +1650,9 @@ const isSavedOffline = surah => !!offlineMap()[offlineKey(surah)];
 // ---- Quran translation languages: 10 editions, cached for offline reading ----
 const QLANGS = [
   { v: "en", name: "English \u2014 Saheeh Intl", edition: "", dir: "ltr" },
+  { v: "ar", name: "\u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u2014 \u0646\u0635 \u0641\u0642\u0637", edition: "", dir: "rtl", hideTr: true },
+  { v: "ar-jalalayn", name: "\u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u2014 \u0627\u0644\u062c\u0644\u0627\u0644\u064a\u0646", edition: "ara-jalaladdinalmah", dir: "rtl" },
+  { v: "ar-bayan", name: "\u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u2014 \u0628\u064a\u0627\u0646 (\u0627\u0644\u0645\u0644\u0643 \u0641\u0647\u062f)", edition: "ara-kingfahadquranc", dir: "rtl" },
   { v: "en-abdelhaleem", name: "English \u2014 Abdel Haleem", edition: "eng-abdelhaleem", dir: "ltr" },
   { v: "en-yusufali", name: "English \u2014 Yusuf Ali", edition: "eng-yusufaliorig", dir: "ltr" },
   { v: "fr", name: "Fran\u00e7ais", edition: "fra-muhammadhameedu", dir: "ltr" },
@@ -1700,7 +1703,9 @@ async function applyQuranLanguage(surah) {
       const row = x.closest(".ayah");
       const o = row && origTr.get(row.dataset.a);
       if (o) x.textContent = o;
-      x.dir = "ltr"; x.style.fontSize = ""; x.style.lineHeight = "";
+      x.dir = lang.dir || "ltr";
+      x.style.display = lang.hideTr ? "none" : "";
+      x.style.fontSize = ""; x.style.lineHeight = "";
     });
     return;
   }
@@ -1712,6 +1717,7 @@ async function applyQuranLanguage(surah) {
     const row = x.closest(".ayah");
     const t = row ? byVerse.get(+row.dataset.a) : null;
     if (t) x.textContent = t;
+    x.style.display = "";
     x.dir = lang.dir;
     x.style.fontSize = lang.dir === "rtl" ? "19px" : "";
     x.style.lineHeight = lang.dir === "rtl" ? "2.1" : "";
