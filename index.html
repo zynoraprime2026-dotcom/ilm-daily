@@ -236,6 +236,29 @@ h1 { font-weight: 800; font-size: 26px; margin-top: 4px; }
 @media (prefers-reduced-motion: reduce) {
   #view > *, .card, .btn, .loading { animation: none !important; transition: none !important; }
 }
+
+/* ---- UI polish: CSS only, both themes, no behaviour change ---- */
+* { -webkit-tap-highlight-color: transparent; }
+.ayah { border-radius: 14px; transition: border-color .18s ease, background .18s ease, transform .14s ease; }
+.ayah:active { transform: scale(.996); }
+.ayah .ar { font-size: 26px; line-height: 2.05; }
+.ayah .tr { font-size: 15px; line-height: 1.65; }
+.searchbar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(10px); }
+.searchbar input { height: 46px; font-size: 16px; }
+.btn, .tab, .back, .aplay, select { min-height: 44px; }
+.btn, .tab { transition: transform .12s ease, background .18s ease, border-color .18s ease; }
+.btn:active, .tab:active { transform: scale(.97); }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 10px; }
+.ayah-hit { border-radius: 12px; padding-left: 8px; padding-right: 8px; transition: background .18s ease; }
+.ayah-hit:hover, .ayah-hit:active { background: var(--gold-soft); }
+.item { transition: border-color .18s ease, transform .12s ease, background .18s ease; }
+.item:active { transform: scale(.996); }
+.tabs { padding-bottom: max(6px, env(safe-area-inset-bottom)); }
+@media (max-width: 480px) {
+  .ayah .ar { font-size: 23px; line-height: 2; }
+  .ayah .tr { font-size: 14px; }
+  .card { padding-left: 12px; padding-right: 12px; }
+}
 </style>
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#0b1a18" />
