@@ -1,5 +1,6 @@
 // Ilm Daily service worker — offline shell + offline Quran audio + salat alarm support.
-const CACHE = 'ilm-daily-v14';
+const CACHE = 'ilm-daily-v15';
+const TAFSIR_CACHE = 'ilm-tafsir';
 const AUDIO_CACHE = 'ilm-quran-audio';
 const SHELL = ['./', './index.html', './stories.js', './quran.js', './daily-hadith.js', './praytimes.js', './duas.json', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
@@ -10,7 +11,7 @@ self.addEventListener('install', e => {
 });
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== AUDIO_CACHE && k !== 'ilm-hadith-audio' && k !== 'ilm-hadith-text').map(k => caches.delete(k))))
+    caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== AUDIO_CACHE && k !== 'ilm-hadith-audio' && k !== 'ilm-hadith-text' && k !== TAFSIR_CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -115,6 +116,17 @@ self.addEventListener('fetch', e => {
       return;
     }
     return; // everything else cross-origin: straight to network
+  }
+  if (url.pathname.includes('/tafsir/')) {
+    // bundled commentary: cache-first in its own bucket so app updates never throw it away
+    e.respondWith(caches.open(TAFSIR_CACHE).then(async c => {
+      const hit = await c.match(e.request, { ignoreSearch: true });
+      if (hit) return hit;
+      const r = await fetch(e.request);
+      if (r.ok) c.put(e.request, r.clone());
+      return r;
+    }));
+    return;
   }
   if (e.request.mode === 'navigate' || (e.request.headers.get('accept') || '').includes('text/html')) {
     // network-first for pages: users always get the latest version, offline falls back to cache
