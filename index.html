@@ -915,7 +915,7 @@ async function renderSurah(view, n) {
       if (TAFSIR_OFFLINE.has(+n)) { dt.style.display = "none"; }
       else {
         dt.style.display = "";
-        dt.textContent = extraTafsirSet().has(+n) ? "✓ Tafsir offline — tap to remove" : "⬇ Save tafsir offline";
+        dt.textContent = extraTafsirSet().has(+n) ? "✓ Ibn Kathir offline — tap to remove" : "⬇ Save Ibn Kathir tafsir";
         dt.addEventListener("click", () => saveTafsirPack(n, meta ? meta.ayah_count : data.ayahs.length, dt));
       }
     }
@@ -1004,7 +1004,7 @@ async function toggleWords(el, surah, ayah) {
 }
 /* Shown in the storage card so a support question can start from a version
    number instead of "the latest one". Bump with the service worker. */
-const APP_VERSION = "27";
+const APP_VERSION = "28";
 /* Tafsir for the surahs people actually open ships with the app, so the
    commentary reads with no network at all. Anything not bundled (or an ayah
    the commentators skip) still falls through to ilm-api as before. */
@@ -1025,6 +1025,97 @@ async function cachedTafsirPack(n) {
     return d.ayahs || {};
   } catch (e) { return null; }
 }
+/* One surah's commentary, straight into its own cache entry. Both the per-surah
+   button and the whole-Quran download go through here, so there is one place that
+   knows how a pack is fetched, keyed and marked. Each surah is committed as it
+   finishes, which is what makes an interrupted bulk download resumable. */
+async function fetchTafsirSurah(n, ayahCount, onProgress) {
+  const ayahs = {};
+  let done = 0;
+  const queue = Array.from({ length: ayahCount }, (_, i) => i + 1);
+  const worker = async () => {
+    while (queue.length) {
+      const a = queue.shift();
+      try {
+        const d = await api(`/v1/tafsir/${n}/${a}`);
+        if (d && d.tafsir && d.tafsir.length) ayahs[a] = d.tafsir;
+      } catch (_) {}
+      done++;
+      if (onProgress) onProgress(done, ayahCount);
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker));
+  const c = await caches.open(TAFSIR_EXTRA_CACHE);
+  await c.put(TAFSIR_EXTRA_URL(n), new Response(JSON.stringify({ surah: n, ayahs }), { headers: { "content-type": "application/json" } }));
+  const set = extraTafsirSet();
+  set.add(n);
+  localStorage.setItem("ilm_tafsir_extra", JSON.stringify([...set]));
+  TAFSIR_PACK_CACHE.delete("x" + n);
+  return Object.keys(ayahs).length;
+}
+// measured from the bundled packs: about 11.5 KB of commentary per ayah
+function surahAyahCounts() {
+  const out = {};
+  try { QURAN_PACK.surahs.forEach(s => { out[s.number] = s.ayah_count; }); } catch (e) {}
+  return out;
+}
+const TAFSIR_BYTES_PER_AYAH = 11500;
+function tafsirRemaining() {
+  const counts = surahAyahCounts();
+  const todo = [];
+  let ayahs = 0;
+  for (let n = 1; n <= 114; n++) {
+    if (TAFSIR_OFFLINE.has(n) || extraTafsirSet().has(n)) continue;
+    todo.push(n);
+    ayahs += counts[n] || 0;
+  }
+  return { todo, ayahs, mb: Math.round(ayahs * TAFSIR_BYTES_PER_AYAH / 1048576) };
+}
+/* Ibn Kathir for the whole Quran, one tap. The 43 bundled surahs already read
+   offline; this pulls the remaining 71 so a reader outside Juz 30 does not have to
+   open seventy-one surahs and tap a button in each. It is a real download (tens of
+   MB), so it asks first with the size, reports which surah it is on, and skips
+   anything already saved. */
+let TAFSIR_ALL_RUN = false;
+async function saveAllTafsir(btn) {
+  if (TAFSIR_ALL_RUN) return;
+  const { todo, mb } = tafsirRemaining();
+  if (!todo.length) { btn.textContent = "✓ All 114 offline"; return; }
+  const counts = surahAyahCounts();
+  try {
+    if (navigator.storage && navigator.storage.estimate) {
+      const est = await navigator.storage.estimate();
+      if (est.quota && est.usage && est.quota - est.usage < mb * 1048576 * 1.3) {
+        alert(`Not enough free space: this needs about ${mb} MB.`);
+        return;
+      }
+    }
+  } catch (e) {}
+  if (!confirm(`Download Ibn Kathir tafsir for the ${todo.length} surahs not bundled with the app?\n\nAbout ${mb} MB. Each surah is saved as it finishes, so you can stop and pick it up later.`)) return;
+  TAFSIR_ALL_RUN = true;
+  btn.disabled = true;
+  let ok = 0, i = 0;
+  try {
+    for (const n of todo) {
+      i++;
+      const name = (QURAN_PACK.surahs.find(x => x.number === n) || {}).name || `Surah ${n}`;
+      btn.textContent = `⬇ ${i}/${todo.length} · ${name}`;
+      try {
+        const got = await fetchTafsirSurah(n, counts[n] || 0, (done, total) => {
+          btn.textContent = `⬇ ${i}/${todo.length} · ${name} ${Math.round((done / total) * 100)}%`;
+        });
+        if (got) ok++;
+      } catch (e) {}
+    }
+    const left = tafsirRemaining().todo.length;
+    btn.textContent = left ? `✓ ${ok} saved · ${left} left — tap to continue` : "✓ All 114 offline";
+  } catch (e) {
+    btn.textContent = "Download failed — tap to continue";
+  }
+  TAFSIR_ALL_RUN = false;
+  btn.disabled = false;
+  renderStorageCard();
+}
 async function saveTafsirPack(surah, ayahCount, btn) {
   const n = Number(surah);
   const set = extraTafsirSet();
@@ -1036,33 +1127,16 @@ async function saveTafsirPack(surah, ayahCount, btn) {
       set.delete(n);
       localStorage.setItem("ilm_tafsir_extra", JSON.stringify([...set]));
       TAFSIR_PACK_CACHE.delete("x" + n);
-      btn.textContent = "⬇ Save tafsir offline";
+      btn.textContent = "⬇ Save Ibn Kathir tafsir";
       btn.disabled = false;
+      renderStorageCard();
       return;
     }
-    const ayahs = {};
-    let done = 0;
-    const queue = Array.from({ length: ayahCount }, (_, i) => i + 1);
-    const worker = async () => {
-      while (queue.length) {
-        const a = queue.shift();
-        try {
-          const d = await api(`/v1/tafsir/${n}/${a}`);
-          if (d && d.tafsir && d.tafsir.length) ayahs[a] = d.tafsir;
-        } catch (_) {}
-        done++;
-        if (done % 4 === 0 || !queue.length) btn.textContent = `⬇ Saving tafsir ${done}/${ayahCount}…`;
-      }
-    };
-    await Promise.all(Array.from({ length: 4 }, worker));
-    const c = await caches.open(TAFSIR_EXTRA_CACHE);
-    await c.put(TAFSIR_EXTRA_URL(n), new Response(JSON.stringify({ surah: n, ayahs }), { headers: { "content-type": "application/json" } }));
-    set.add(n);
-    localStorage.setItem("ilm_tafsir_extra", JSON.stringify([...set]));
-    TAFSIR_PACK_CACHE.delete("x" + n);
-    const got = Object.keys(ayahs).length;
+    const got = await fetchTafsirSurah(n, ayahCount, (done, total) => {
+      btn.textContent = `⬇ Saving tafsir ${done}/${total}…`;
+    });
     if (!got) throw new Error("nothing saved");
-    btn.textContent = `✓ Tafsir offline (${got}/${ayahCount})`;
+    btn.textContent = `✓ Ibn Kathir offline (${got}/${ayahCount})`;
   } catch (e) {
     btn.textContent = "Tafsir pack failed — tap to retry";
   }
@@ -2494,7 +2568,15 @@ async function renderStorageCard() {
       ${usage != null ? `${fmtBytes(usage)} used${quota ? " of " + fmtBytes(quota) + " available" : ""}. ` : ""}The Quran text, du'as, prayer times and 43 surahs of tafsir need no download at all — they ship with the app.
     </div>`);
   parts.push(storageRow("Hadith text", inv.hadithText ? inv.hadithText + " collection" + (inv.hadithText === 1 ? "" : "s") + " saved for offline search" : "not saved — search needs a connection", inv.hadithText ? "Remove" : "", "hadith"));
-  parts.push(storageRow("Extra tafsir packs", inv.tafsirExtra ? inv.tafsirExtra + " surah" + (inv.tafsirExtra === 1 ? "" : "s") + " downloaded by hand" : "none — the 43 bundled surahs are already offline", inv.tafsirExtra ? "Remove" : "", "tafsir"));
+  const tRem = tafsirRemaining();
+  const tOff = 114 - tRem.todo.length;
+  parts.push(`<div class="row" style="align-items:center;gap:10px">
+      <span class="pname" style="font-size:13px">Ibn Kathir tafsir<br><span style="color:var(--muted);font-size:12px;font-weight:400">${tOff} of 114 surahs offline${tRem.todo.length ? ` · ${tRem.todo.length} left, about ${tRem.mb} MB` : ""}${inv.tafsirExtra ? ` · ${inv.tafsirExtra} downloaded here` : ""}</span></span>
+      <span style="display:flex;gap:6px;flex-wrap:wrap">
+        ${tRem.todo.length ? `<button class="btn ghost" id="stTafsirAll" style="font-size:11px;padding:4px 10px">⬇ Download all</button>` : ""}
+        ${inv.tafsirExtra ? `<button class="btn ghost" data-clear="tafsir" style="font-size:11px;padding:4px 10px">Remove</button>` : ""}
+      </span>
+    </div>`);
   parts.push(storageRow("Word-by-word packs", inv.wordsExtra ? inv.wordsExtra + " surah" + (inv.wordsExtra === 1 ? "" : "s") + " saved with grammar and roots" : "none — tap any ayah to fetch one ayah at a time", inv.wordsExtra ? "Remove" : "", "words"));
   parts.push(storageRow("Word audio", inv.wordsAudio ? inv.wordsAudio + " surah" + (inv.wordsAudio === 1 ? "" : "s") + " of word clips saved" : "none — tap the ▶ on any word to hear it", inv.wordsAudio ? "Remove" : "", "wordsaudio"));
   parts.push(storageRow("Quran audio", inv.audio ? inv.audio + " ayah recordings cached" : "none saved", inv.audio ? "Remove" : "", "audio"));
@@ -2505,6 +2587,8 @@ async function renderStorageCard() {
     </div>`);
   el.innerHTML = parts.join("");
   el.querySelectorAll("[data-clear]").forEach(b => b.addEventListener("click", () => clearDownloads(b.dataset.clear)));
+  const stTafsirAll = el.querySelector("#stTafsirAll");
+  if (stTafsirAll) stTafsirAll.addEventListener("click", () => saveAllTafsir(stTafsirAll));
   const rf = el.querySelector("#stRefresh");
   if (rf) rf.addEventListener("click", renderStorageCard);
 }
