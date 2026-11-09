@@ -1004,7 +1004,7 @@ async function toggleWords(el, surah, ayah) {
 }
 /* Shown in the storage card so a support question can start from a version
    number instead of "the latest one". Bump with the service worker. */
-const APP_VERSION = "29";
+const APP_VERSION = "30";
 /* Tafsir for the surahs people actually open ships with the app, so the
    commentary reads with no network at all. Anything not bundled (or an ayah
    the commentators skip) still falls through to ilm-api as before. */
@@ -1826,6 +1826,58 @@ function renderHadith(view) {
         <div class="tr" style="color:var(--text)">${x.rec.w ? "Narrated " + esc(x.rec.w) + ": " : ""}${esc(x.rec.en)}</div>
       </div>`).join("");
   };
+  // Online search used to print "20 results — showing first 20" while the API was
+  // reporting thousands of matches, and it wrote "Narrated :" whenever the source had no
+  // narrator. Both are fixed here: the count is the real total, and pages of 20 arrive on
+  // demand with the same cards the book view uses.
+  const SEARCH_PAGE = 20;
+  const searchState = { q: "", offset: 0, total: 0, shown: 0 };
+
+  const searchCardHTML = (h) => {
+    const ar = String(h.text_arabic || "").trim();
+    const en = String(h.text_english || "").trim();
+    const narr = String(h.narrator || "").trim();
+    return `
+      <div class="ayah hcard" style="cursor:default">
+        <div class="hadith-meta">
+          <span class="pill">${esc(h.collection)}</span>
+          <span class="pill">No. ${esc(h.hadith_number)}</span>
+          ${h.grade ? `<span class="pill green">${esc(h.grade)}</span>` : ""}
+        </div>
+        ${ar ? `<div class="ar" style="font-size:19px;margin-bottom:8px">${esc(ar)}</div>` : ""}
+        <div class="tr" style="color:var(--text)">${(!en && !ar)
+          ? `<i style="color:var(--muted)">Text not present in the source edition for this narration.</i>`
+          : (narr ? `<b>${esc(narr)}</b>: ` : "") + esc(en)}</div>
+        <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+          ${ar ? `<button class="btn ghost hplay" data-slug="${esc(h.collection)}" data-num="${esc(h.hadith_number)}" title="Listen to the Arabic — it saves for offline as it plays" style="font-size:11px;padding:3px 9px">▶ Listen</button>` : ""}
+          <button class="btn ghost hshare-s" data-b="${esc(h.collection)}" data-r="${esc(h.hadith_number)}" style="font-size:11px;padding:3px 9px">↗ Share</button>
+        </div>
+      </div>`;
+  };
+
+  const wireSearchCards = (scope) => {
+    wireHadithPlay(scope);
+    scope.querySelectorAll(".hshare-s:not([data-wired])").forEach(b => {
+      b.dataset.wired = "1";
+      b.addEventListener("click", () => {
+        const card = b.closest(".hcard");
+        const ar = card.querySelector(".ar");
+        shareText(`"${card.querySelector(".tr").textContent}"${ar && ar.textContent ? `\n\n${ar.textContent}` : ""}\n\n${b.dataset.b} #${b.dataset.r} · via Ilm Daily`);
+      });
+    });
+  };
+
+  const paintSearchHeader = () => {
+    const el = $("#hcount");
+    if (!el) return;
+    el.textContent = searchState.total
+      ? `Showing ${searchState.shown} of ${searchState.total} for "${searchState.q}"`
+      : `No hadith found for "${searchState.q}".`;
+    el.style.display = "block";
+    const more = $("#hmore");
+    if (more) more.style.display = searchState.shown < searchState.total ? "inline-block" : "none";
+  };
+
   const run = async () => {
     const q = $("#hsearch").value.trim();
     if (!q) return;
@@ -1842,32 +1894,47 @@ function renderHadith(view) {
         $("#hresults").innerHTML = await offlineHadithSearchHTML(q, true);
         return;
       }
-      $("#hresults").innerHTML = data.count === 0
-        ? `<div class="empty">No hadith found for "${esc(q)}".</div>`
-        : `<p class="note" style="text-align:left">${data.count} results for "${esc(q)}" — showing first 20</p>` +
-          data.results.map(h => `
-            <div class="ayah hcard" style="cursor:default">
-              <div class="hadith-meta">
-                <span class="pill">${esc(h.collection)}</span>
-                <span class="pill">No. ${esc(h.hadith_number)}</span>
-                ${h.grade ? `<span class="pill green">${esc(h.grade)}</span>` : ""}
-              </div>
-              ${h.text_arabic ? `<div class="ar" style="font-size:19px;margin-bottom:8px">${esc(h.text_arabic)}</div>` : ""}
-              <div class="tr" style="color:var(--text)">Narrated ${esc(h.narrator)}: ${esc(h.text_english)}</div>
-              <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
-            ${h.text_arabic ? `<button class="btn ghost hplay" data-slug="${esc(h.collection)}" data-num="${esc(h.hadith_number)}" title="Listen to the Arabic — saves for offline" style="font-size:11px;padding:3px 9px">▶ Listen</button>` : ""}
-            <button class="btn ghost hshare-s" data-b="${esc(h.collection)}" data-r="${esc(h.hadith_number)}" style="font-size:11px;padding:3px 9px">↗ Share</button>
-          </div>
-            </div>`).join("") +
-          `<div style="text-align:center;margin:14px"><button class="btn ghost" id="hBack">← Back to books</button></div>`;
-      wireHadithPlay(view);
-      view.querySelectorAll(".hshare-s").forEach(b => b.addEventListener("click", () => {
-        const card = b.closest(".hcard");
-        const ar = card.querySelector(".ar");
-        shareText(`"${card.querySelector(".tr").textContent.replace(/^Narrated /, "")}"${ar && ar.textContent ? `\n\n${ar.textContent}` : ""}\n\n${b.dataset.b} #${b.dataset.r} · via Ilm Daily`);
-      }));
-      const b = document.getElementById("hBack");
-      if (b) b.addEventListener("click", () => renderHadith(view));
+      searchState.q = q;
+      searchState.offset = 0;
+      searchState.shown = 0;
+      searchState.total = Number(data.total || data.count || (data.results || []).length) || 0;
+      $("#hresults").innerHTML = `
+        <p class="note" id="hcount" style="text-align:left"></p>
+        <div id="hlist"></div>
+        <div style="text-align:center;margin:14px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <button class="btn ghost" id="hmore" style="display:none">\u25BE Load more</button>
+          <button class="btn ghost" id="hBack">\u2190 Back to books</button>
+        </div>`;
+      const list = $("#hlist");
+      list.innerHTML = (data.results || []).map(searchCardHTML).join("");
+      searchState.shown = (data.results || []).length;
+      searchState.offset = searchState.shown;
+      paintSearchHeader();
+      wireSearchCards(view);
+      const back = document.getElementById("hBack");
+      if (back) back.addEventListener("click", () => renderHadith(view));
+      const more2 = document.getElementById("hmore");
+      if (more2) more2.addEventListener("click", async () => {
+        if (more2.dataset.busy === "1") return;
+        more2.dataset.busy = "1";
+        more2.textContent = "\u22EF Loading";
+        try {
+          const next = await api(`/v1/hadith/search?q=${encodeURIComponent(searchState.q)}&limit=${SEARCH_PAGE}&offset=${searchState.offset}`);
+          const rows = next.results || [];
+          if (!rows.length) { more2.style.display = "none"; return; }
+          $("#hlist").insertAdjacentHTML("beforeend", rows.map(searchCardHTML).join(""));
+          searchState.shown += rows.length;
+          searchState.offset += rows.length;
+          searchState.total = Number(next.total || searchState.total) || searchState.total;
+          paintSearchHeader();
+          wireSearchCards(view);
+        } catch (e) {
+          more2.textContent = "\u25BE Load more";
+        } finally {
+          more2.dataset.busy = "0";
+          more2.textContent = "\u25BE Load more";
+        }
+      });
     } catch (e) {
       $("#hresults").innerHTML = `<div class="empty">Search failed: ${esc(e.message)}</div>`;
     }

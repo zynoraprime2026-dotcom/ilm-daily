@@ -41,3 +41,22 @@ counts are absent on a fresh phone and the row first read "about 0 MB". The card
 the size when counts are not loaded, and the download calls ensureQuran() before quoting
 its figure. Verified live: surah 77 (previously unbundled) downloaded 50/50 and its ayah 1
 renders Ibn Kathir from the pack.
+
+### 2026-11-09 13:05 — Prime: hadith search told the truth about how much it found
+
+Search printed "20 results for \"prayer\" — showing first 20" while the API reported 6,483
+matches, so the screen looked like the library was small. `total` is the real figure and
+`count` is only the page, which is where the confusion came from. The header now reads
+"Showing 20 of 6483", pages arrive 20 at a time behind "Load more" (offset paging, each
+page wired for Listen and Share), and the same honest card is used everywhere: a narration
+the source has no narrator for no longer renders "Narrated :", and one whose text the
+edition lacks says so instead of showing an empty box.
+
+APP_VERSION 30, SW cache ilm-daily-v31 (sw.js had already gone to v30 without the app
+version following, and an unchanged sw.js would have kept serving the old precached
+index.html). tests/hadith-search.test.js drives the tab in a real DOM with jsdom, skips
+cleanly when jsdom is absent, and pins the total, the paging offset and both honesty cases.
+
+Verified against live ilm-api: header "Showing 20 of 98" for patience, Load more appended
+20 more cards ("Showing 40 of 98"), audio for bukhari/1 returns 232 KB of audio/mpeg
+through /web.
