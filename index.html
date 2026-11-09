@@ -859,9 +859,12 @@ async function renderSurah(view, n) {
       saveSurahOffline(n, meta ? meta.ayah_count : data.ayahs.length, $("#dlSurah"));
     });
     const dwa = document.getElementById("dlWordsAudio");
-    if (dwa && wordsExtraSet().has(+n)) {
-      dwa.style.display = "";
-      wordAudioSaved(n).then(saved => { dwa.textContent = saved ? "✓ Word audio offline — tap to remove" : "⬇ Add word audio"; });
+    if (dwa) {
+      const showAudioBtn = () => {
+        dwa.style.display = "";
+        wordAudioSaved(n).then(saved => { dwa.textContent = saved ? "✓ Word audio offline — tap to remove" : "⬇ Add word audio"; });
+      };
+      if (wordsExtraSet().has(+n)) showAudioBtn();
       dwa.addEventListener("click", () => {
         wordAudioSaved(n).then(saved => saved ? removeWordAudio(n, dwa) : saveWordAudio(n, dwa));
       });
@@ -974,7 +977,7 @@ async function toggleWords(el, surah, ayah) {
 }
 /* Shown in the storage card so a support question can start from a version
    number instead of "the latest one". Bump with the service worker. */
-const APP_VERSION = "25";
+const APP_VERSION = "26";
 /* Tafsir for the surahs people actually open ships with the app, so the
    commentary reads with no network at all. Anything not bundled (or an ayah
    the commentators skip) still falls through to ilm-api as before. */
@@ -1199,6 +1202,8 @@ async function saveWordsPack(surah, ayahCount, btn) {
       localStorage.setItem("ilm_words_extra", JSON.stringify([...set]));
       WORDS_PACK_CACHE.delete(n);
       btn.textContent = "⬇ Save words offline";
+      const audioBtn = document.getElementById("dlWordsAudio");
+      if (audioBtn) audioBtn.style.display = "none";
       btn.disabled = false;
       return;
     }
@@ -1235,6 +1240,8 @@ async function saveWordsPack(surah, ayahCount, btn) {
     localStorage.setItem("ilm_words_extra", JSON.stringify([...set]));
     WORDS_PACK_CACHE.delete(n);
     btn.textContent = `✓ Words offline (${got}/${ayahCount})`;
+    const audioBtn = document.getElementById("dlWordsAudio");
+    if (audioBtn) { audioBtn.style.display = ""; audioBtn.textContent = "⬇ Add word audio"; }
   } catch (e) {
     btn.textContent = "Words pack failed — tap to retry";
   }
