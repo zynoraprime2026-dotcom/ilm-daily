@@ -802,6 +802,7 @@ async function renderSurah(view, n) {
           <button class="btn" id="playSurah">▶ Play surah</button>
           <select id="qlang" title="Quran translation language" style="max-width:210px"></select>
           <button class="btn ghost" id="dlSurah">⬇ Save offline</button>
+          <button class="btn ghost" id="dlWords">⬇ Save words offline</button>
           <button class="btn ghost" id="dlTafsir" style="display:none">⬇ Save tafsir offline</button>
           <button class="btn ghost" id="rmSurah" style="display:none">🗑 Remove offline</button>
           <label class="rnote" style="margin:0;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="dsQuran"> 64kbps data saver</label>
@@ -853,6 +854,11 @@ async function renderSurah(view, n) {
     $("#dlSurah").addEventListener("click", () => {
       saveSurahOffline(n, meta ? meta.ayah_count : data.ayahs.length, $("#dlSurah"));
     });
+    const dw = document.getElementById("dlWords");
+    if (dw) {
+      dw.textContent = wordsExtraSet().has(+n) ? "✓ Words offline — tap to remove" : "⬇ Save words offline";
+      dw.addEventListener("click", () => saveWordsPack(n, meta ? meta.ayah_count : data.ayahs.length, dw));
+    }
     const dt = document.getElementById("dlTafsir");
     if (dt) {
       if (TAFSIR_OFFLINE.has(+n)) { dt.style.display = "none"; }
@@ -915,9 +921,16 @@ async function toggleWords(el, surah, ayah) {
   if (existing) { existing.remove(); return; }
   el.insertAdjacentHTML("beforeend", `<div class="wbw"><div class="loading">Loading words…</div></div>`);
   try {
-    const data = await api(`/v1/quran/${surah}/${ayah}/words`);
+    let data = null;
+    let offline = false;
+    try {
+      const pack = await wordsPack(surah);
+      const hit = pack && pack[String(ayah)];
+      if (hit && hit.length) { data = { words: hit }; offline = true; }
+    } catch (_) { /* fall through to the API */ }
+    if (!data) data = await api(`/v1/quran/${surah}/${ayah}/words`);
     el.querySelector(".wbw").innerHTML = `
-      <div class="wbw-title">Word by word</div>
+      <div class="wbw-title">Word by word${offline ? " · offline" : ""}</div>
       <div class="wbw-grid">
         ${data.words.map(w => `
           <div class="wbw-w">
@@ -935,7 +948,7 @@ async function toggleWords(el, surah, ayah) {
 }
 /* Shown in the storage card so a support question can start from a version
    number instead of "the latest one". Bump with the service worker. */
-const APP_VERSION = "22";
+const APP_VERSION = "23";
 /* Tafsir for the surahs people actually open ships with the app, so the
    commentary reads with no network at all. Anything not bundled (or an ayah
    the commentators skip) still falls through to ilm-api as before. */
@@ -996,6 +1009,91 @@ async function saveTafsirPack(surah, ayahCount, btn) {
     btn.textContent = `✓ Tafsir offline (${got}/${ayahCount})`;
   } catch (e) {
     btn.textContent = "Tafsir pack failed — tap to retry";
+  }
+  btn.disabled = false;
+}
+/* Word-by-word morphology is the one thing the reader still fetched from the
+   network: ~93,000 word records, about 11 MB, too much to bundle for every user.
+   So it is downloadable one surah at a time, exactly like the tafsir packs, and
+   read from the cache when it is there. */
+const WORDS_EXTRA_CACHE = "ilm-words-extra";
+const WORDS_EXTRA_URL = n => `https://ilm-daily.local/words-extra/${n}.json`;
+const WORDS_PACK_CACHE = new Map();
+const wordsExtraSet = () => new Set(JSON.parse(localStorage.getItem("ilm_words_extra") || "[]"));
+async function cachedWordsPack(n) {
+  try {
+    const c = await caches.open(WORDS_EXTRA_CACHE);
+    const hit = await c.match(WORDS_EXTRA_URL(n));
+    if (!hit) return null;
+    const d = await hit.json();
+    return d.ayahs || {};
+  } catch (e) { return null; }
+}
+async function cachedWordsPackVerified(n) {
+  const pack = await cachedWordsPack(n);
+  if (pack) return pack;
+  try {
+    const set = wordsExtraSet();
+    if (set.has(Number(n))) {
+      set.delete(Number(n));
+      localStorage.setItem("ilm_words_extra", JSON.stringify([...set]));
+    }
+  } catch (e) {}
+  return null;
+}
+function wordsPack(surah) {
+  const n = Number(surah);
+  if (!wordsExtraSet().has(n)) return Promise.resolve(null);
+  if (!WORDS_PACK_CACHE.has(n)) WORDS_PACK_CACHE.set(n, cachedWordsPackVerified(n));
+  return WORDS_PACK_CACHE.get(n);
+}
+const KEEP_WORD_FIELDS = ["text_arabic", "transliteration", "translation", "part_of_speech", "root_arabic"];
+async function saveWordsPack(surah, ayahCount, btn) {
+  const n = Number(surah);
+  const set = wordsExtraSet();
+  btn.disabled = true;
+  try {
+    if (set.has(n)) {
+      const c = await caches.open(WORDS_EXTRA_CACHE);
+      await c.delete(WORDS_EXTRA_URL(n));
+      set.delete(n);
+      localStorage.setItem("ilm_words_extra", JSON.stringify([...set]));
+      WORDS_PACK_CACHE.delete(n);
+      btn.textContent = "⬇ Save words offline";
+      btn.disabled = false;
+      return;
+    }
+    const ayahs = {};
+    let done = 0;
+    const queue = Array.from({ length: ayahCount }, (_, i) => i + 1);
+    const worker = async () => {
+      while (queue.length) {
+        const a = queue.shift();
+        try {
+          const d = await api(`/v1/quran/${n}/${a}/words`);
+          if (d && d.words && d.words.length) {
+            ayahs[a] = d.words.map(w => {
+              const o = {};
+              KEEP_WORD_FIELDS.forEach(k => { if (w[k] != null) o[k] = w[k]; });
+              return o;
+            });
+          }
+        } catch (_) {}
+        done++;
+        if (done % 5 === 0 || !queue.length) btn.textContent = `⬇ Saving words ${done}/${ayahCount}…`;
+      }
+    };
+    await Promise.all(Array.from({ length: 4 }, worker));
+    const got = Object.keys(ayahs).length;
+    if (!got) throw new Error("nothing saved");
+    const c = await caches.open(WORDS_EXTRA_CACHE);
+    await c.put(WORDS_EXTRA_URL(n), new Response(JSON.stringify({ surah: n, ayahs }), { headers: { "content-type": "application/json" } }));
+    set.add(n);
+    localStorage.setItem("ilm_words_extra", JSON.stringify([...set]));
+    WORDS_PACK_CACHE.delete(n);
+    btn.textContent = `✓ Words offline (${got}/${ayahCount})`;
+  } catch (e) {
+    btn.textContent = "Words pack failed — tap to retry";
   }
   btn.disabled = false;
 }
@@ -2152,9 +2250,10 @@ function fmtBytes(n) {
   return (i === 0 ? Math.round(n) : n.toFixed(n < 10 ? 1 : 0)) + " " + u[i];
 }
 async function cacheInventory() {
-  const inv = { hadithText: 0, tafsirExtra: 0, audio: 0, shell: 0 };
+  const inv = { hadithText: 0, tafsirExtra: 0, wordsExtra: 0, audio: 0, shell: 0 };
   try { inv.hadithText = (await (await caches.open(HADITH_TEXT_CACHE)).keys()).length; } catch (e) {}
   try { inv.tafsirExtra = extraTafsirSet().size; } catch (e) {}
+  try { inv.wordsExtra = wordsExtraSet().size; } catch (e) {}
   try { inv.audio = (await (await caches.open(AUDIO_CACHE)).keys()).length; } catch (e) {}
   try {
     const names = await caches.keys();
@@ -2166,6 +2265,7 @@ async function clearDownloads(which) {
   const label = which === "all" ? "every offline download (hadith text, tafsir packs and Quran audio)"
     : which === "hadith" ? "the saved hadith text"
     : which === "tafsir" ? "the downloaded tafsir packs"
+    : which === "words" ? "the downloaded word-by-word packs"
     : "the saved Quran audio";
   if (!confirm(`Remove ${label}? Your settings and bookmarks are kept.`)) return;
   try {
@@ -2174,6 +2274,11 @@ async function clearDownloads(which) {
       await caches.delete(TAFSIR_EXTRA_CACHE);
       localStorage.setItem("ilm_tafsir_extra", "[]");
       TAFSIR_PACK_CACHE.clear();
+    }
+    if (which === "words" || which === "all") {
+      await caches.delete(WORDS_EXTRA_CACHE);
+      localStorage.setItem("ilm_words_extra", "[]");
+      WORDS_PACK_CACHE.clear();
     }
     if (which === "audio" || which === "all") await caches.delete(AUDIO_CACHE);
   } catch (e) {}
@@ -2207,8 +2312,9 @@ async function renderStorageCard() {
     </div>`);
   parts.push(storageRow("Hadith text", inv.hadithText ? inv.hadithText + " collection" + (inv.hadithText === 1 ? "" : "s") + " saved for offline search" : "not saved — search needs a connection", inv.hadithText ? "Remove" : "", "hadith"));
   parts.push(storageRow("Extra tafsir packs", inv.tafsirExtra ? inv.tafsirExtra + " surah" + (inv.tafsirExtra === 1 ? "" : "s") + " downloaded by hand" : "none — the 43 bundled surahs are already offline", inv.tafsirExtra ? "Remove" : "", "tafsir"));
+  parts.push(storageRow("Word-by-word packs", inv.wordsExtra ? inv.wordsExtra + " surah" + (inv.wordsExtra === 1 ? "" : "s") + " saved with grammar and roots" : "none — tap any ayah to fetch one ayah at a time", inv.wordsExtra ? "Remove" : "", "words"));
   parts.push(storageRow("Quran audio", inv.audio ? inv.audio + " ayah recordings cached" : "none saved", inv.audio ? "Remove" : "", "audio"));
-  const any = inv.hadithText || inv.tafsirExtra || inv.audio;
+  const any = inv.hadithText || inv.tafsirExtra || inv.wordsExtra || inv.audio;
   parts.push(`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
       ${any ? `<button class="btn ghost" data-clear="all" style="font-size:12px;padding:6px 12px">Clear all downloads</button>` : ""}
       <button class="btn ghost" id="stRefresh" style="font-size:12px;padding:6px 12px">Refresh</button>
