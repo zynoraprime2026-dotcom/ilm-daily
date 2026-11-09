@@ -1,5 +1,5 @@
 // Ilm Daily service worker — offline shell + offline Quran audio + salat alarm support.
-const CACHE = 'ilm-daily-v26';
+const CACHE = 'ilm-daily-v27';
 const TAFSIR_CACHE = 'ilm-tafsir';
 const AUDIO_CACHE = 'ilm-quran-audio';
 const SHELL = ['./', './index.html', './stories.js', './quran.js', './daily-hadith.js', './praytimes.js', './duas.json', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
@@ -10,8 +10,14 @@ self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => Promise.allSettled(SHELL.map(u => c.add(u)))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
+  /* Only shell versions are disposable. This used to be an allow-list of download
+     buckets, which meant every new bucket had to be remembered in two places, and
+     any that was not got silently wiped on the next app update: a user's saved
+     tafsir, word packs and word audio vanished when the app shipped a fix. Deleting
+     the previous shell caches is all an update actually needs. */
   e.waitUntil(
-    caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== AUDIO_CACHE && k !== 'ilm-quran-tr' && k !== 'ilm-tafsir-extra' && k !== 'ilm-hadith-audio' && k !== 'ilm-hadith-text' && k !== TAFSIR_CACHE).map(k => caches.delete(k))))
+    caches.keys()
+      .then(ks => Promise.all(ks.filter(k => /^ilm-daily-v\d+$/.test(k) && k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
