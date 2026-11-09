@@ -1027,7 +1027,9 @@ function hadithCard(h, open, slug) {
         ${h.book_name ? `<span class="pill">${esc(h.book_name)}</span>` : ""}
         ${h.grade ? `<span class="pill green">${esc(h.grade)}</span>` : ""}
       </div>
-      <div class="hc-en hc-clamp"><b>${esc(h.narrator || "")}</b>: ${esc(h.text_english || "")}</div>
+      <div class="hc-en hc-clamp">${(!String(h.text_english || "").trim() && !String(h.text_arabic || "").trim())
+        ? `<i style="color:var(--muted)">Text not present in the source edition for this narration.</i>`
+        : `<b>${esc(h.narrator || "")}</b>: ${esc(h.text_english || "")}`}</div>
       ${h.text_arabic ? `<div class="hc-ar">${esc(h.text_arabic)}</div>` : ""}
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
         ${h.text_arabic ? `<button class="btn ghost hplay" data-slug="${esc(slug || h.collection || "")}" data-num="${esc(h.hadith_number)}" title="Listen to the Arabic — it saves for offline as it plays" style="font-size:11px;padding:3px 9px">▶ Listen</button>` : ""}
@@ -1479,7 +1481,9 @@ async function offlineHadithLines(slug) {
 }
 async function offlineHadithBook(slug, page) {
   const m = hbMeta(slug);
-  const recs = await offlineHadithLines(slug);
+  // Some editions (Sahih Muslim especially) ship records with no Arabic and no
+  // English at all: browsing them showed blank cards. Skip anything unreadable.
+  const recs = (await offlineHadithLines(slug)).filter(r => (r.ar || "").trim() || (r.en || "").trim());
   const per = 20;
   const total = recs.length;
   const total_pages = Math.max(1, Math.ceil(total / per));
