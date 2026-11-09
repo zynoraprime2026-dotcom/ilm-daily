@@ -3114,6 +3114,13 @@ async function renderMatn(view, slug) {
   // Playback stays inside the app: no links out, no new tabs. The recording
   // streams through the player with the study controls a memoriser actually
   // needs, speed and a repeat loop, because listening once is not memorising.
+  const pdfBtn = m.pdf_available && m.pdf_url
+    ? `<div style="margin-top:12px;text-align:center">
+         <a class="btn ghost" href="${esc(m.pdf_url)}" download="${esc(m.slug)}.pdf"
+            style="display:inline-block;font-size:13px;padding:9px 16px;text-decoration:none">\u2193 Download the matn (PDF)</a>
+         <div style="font-size:11px;color:var(--muted);margin-top:5px">The printed edition, for offline study</div>
+       </div>`
+    : `<div style="font-size:11px;color:var(--muted);margin-top:10px;text-align:center">No printable edition for this matn yet.</div>`;
   const audio = m.audio_available && m.audio_url
     ? `<audio id="maudio" controls preload="none" playsinline src="${esc(m.audio_url)}" style="width:100%;margin-top:10px"></audio>
        <div style="display:flex;gap:6px;margin-top:8px;justify-content:center;flex-wrap:wrap">
@@ -3133,6 +3140,7 @@ async function renderMatn(view, slug) {
       </div>
       ${m.note ? `<div style="font-size:13px;color:var(--muted);margin-top:10px;line-height:1.6">${esc(m.note)}</div>` : ""}
       ${audio}
+      ${pdfBtn}
     </div>
     <div id="mlines"><div class="loading">Loading text…</div></div>`;
   const a = document.getElementById("maudio");
