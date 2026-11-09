@@ -3111,10 +3111,17 @@ async function renderMatn(view, slug) {
   $("#back").addEventListener("click", () => renderMutoon(view));
   const m = (mutoonCache || []).find(x => x.slug === slug);
   if (!m) { $("#mbody").innerHTML = `<div class="empty">Unknown matn.</div>`; return; }
+  // Playback stays inside the app: no links out, no new tabs. The recording
+  // streams through the player with the study controls a memoriser actually
+  // needs, speed and a repeat loop, because listening once is not memorising.
   const audio = m.audio_available && m.audio_url
-    ? `<audio id="maudio" controls preload="none" src="${esc(m.audio_url)}" style="width:100%;margin-top:10px"></audio>
-       <div style="font-size:11px;color:var(--muted);margin-top:4px">${m.audio_kind === "matn" ? "Full recording \u2014 seek with the player" : "Per-line audio"}</div>`
-    : `<div style="font-size:12px;color:var(--muted);margin-top:8px">No audio for this matn yet.</div>`;
+    ? `<audio id="maudio" controls preload="none" playsinline src="${esc(m.audio_url)}" style="width:100%;margin-top:10px"></audio>
+       <div style="display:flex;gap:6px;margin-top:8px;justify-content:center;flex-wrap:wrap">
+         ${[0.75, 1, 1.25, 1.5].map(r => `<button class="btn ghost mrate" data-r="${r}" style="font-size:12px;padding:4px 10px">${r}x</button>`).join("")}
+         <button class="btn ghost" id="mloop" style="font-size:12px;padding:4px 10px">\u21BB Repeat</button>
+       </div>
+       <div style="font-size:11px;color:var(--muted);margin-top:6px">${m.audio_kind === "matn" ? "Full recording \u2014 one continuous listen, loop it while memorising" : "Per-line audio"}</div>`
+    : `<div style="font-size:12px;color:var(--muted);margin-top:8px">Recording not in the app yet.</div>`;
   $("#mbody").innerHTML = `
     <div class="card" style="text-align:center;margin:10px 12px;padding:16px">
       <div style="font-size:22px;line-height:1.9" dir="rtl">${esc(m.title_arabic)}</div>
@@ -3128,6 +3135,26 @@ async function renderMatn(view, slug) {
       ${audio}
     </div>
     <div id="mlines"><div class="loading">Loading text…</div></div>`;
+  const a = document.getElementById("maudio");
+  if (a) {
+    view.querySelectorAll(".mrate").forEach(b => b.addEventListener("click", () => {
+      a.playbackRate = Number(b.dataset.r);
+      view.querySelectorAll(".mrate").forEach(x => x.classList.toggle("active", x === b));
+    }));
+    const loop = document.getElementById("mloop");
+    if (loop) loop.addEventListener("click", () => {
+      a.loop = !a.loop;
+      loop.classList.toggle("active", a.loop);
+      loop.textContent = a.loop ? "\u21BB Repeating" : "\u21BB Repeat";
+    });
+    // Remember where the listener stopped, per matn, so study resumes where it left.
+    const key = "ilm_matn_pos_" + slug;
+    const saved = Number(localStorage.getItem(key) || 0);
+    if (saved > 1) a.addEventListener("loadedmetadata", () => { if (saved < a.duration) a.currentTime = saved; }, { once: true });
+    a.addEventListener("timeupdate", () => {
+      if (a.currentTime > 0) localStorage.setItem(key, String(Math.floor(a.currentTime)));
+    });
+  }
   try {
     const d = await api(`/v1/mutoon/${encodeURIComponent(slug)}/lines`);
     $("#mlines").innerHTML = `<p class="note" style="text-align:left">${d.total_lines} lines${d.source ? " \u00b7 " + esc(d.source) : ""}</p>` +
