@@ -75,3 +75,33 @@ are on, Escape closes an open narration, and digits typed inside a field never h
 tab. The footer gains a one-line hint on wide screens only. APP_VERSION 31, SW cache
 ilm-daily-v32. tests/ has no jsdom, so the shortcuts were checked in a real DOM separately;
 tests/hadith-search.test.js still passes at 1/1 with jsdom present.
+
+### 2026-11-09 13:25 — Prime: installable on a laptop, not just a phone
+
+The install bar waited for `beforeinstallprompt` and said "Install Ilm Daily on your phone",
+so a laptop either saw nothing at all (Chrome often fires that event late or not until the
+second visit) or was told to reach for a phone. It now appears at once with the path that
+actually exists in the browser in front of the reader: Chrome/Edge name the install icon in
+the address bar and the \u22ee menu, Safari says File > Add to Dock, Firefox says plainly that
+it cannot install web apps and points at Chrome or Edge. The moment the browser does offer
+its prompt, the instructions collapse into one button reading "Install on this laptop".
+Copy is device-aware again for phones, including the iPhone Share path.
+
+The manifest was the other half: orientation was pinned to portrait (wrong for a laptop
+window), there was no id, no display_override and no shortcuts. It now carries `id`,
+`orientation: any`, `display_override: [standalone, minimal-ui]`, categories, and three icon
+shortcuts (Quran, Hadith, Du'as). Shortcuts are only useful if the app honours them, so the
+boot reads `?tab=` and opens that tab; offline, navigation falls back to the cached shell
+because SW navigation already matches with ignoreSearch.
+
+The Offline & storage card gains an "App window" row: it says whether you are in an installed
+window or a browser tab, and "How to install" reopens the bar (a dismissal is remembered, so
+there had been no way back). On screens 980px and up the bar sits in the flow instead of
+floating over the tab bar. APP_VERSION 32, SW cache ilm-daily-v33.
+
+Verified in a DOM harness, 25/25: Chrome laptop shows the address-bar instructions with no
+phone wording, a simulated prompt turns it into the laptop button and accepting hides the
+bar, Firefox gets the cannot-install message, Safari gets Add to Dock, iPhone gets Add to
+Home Screen, dismissal persists and the storage-card button brings the bar back, ?tab=hadith
+boots into Hadith and a bogus ?tab= falls back to Prayer, and the manifest still has
+standalone display with 192/512 icons.

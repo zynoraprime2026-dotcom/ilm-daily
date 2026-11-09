@@ -252,6 +252,7 @@ a { color: var(--gold); }
 #installBar { display:none; align-items:center; gap:10px; justify-content:space-between; flex-wrap:wrap; padding:12px 16px; margin-bottom:14px; position: fixed; bottom: calc(var(--nav-h) + 12px); left: 12px; right: 12px; z-index: 50; box-shadow: var(--shadow); max-width: 616px; margin-left: auto; margin-right: auto; }
 #installBar .ib-close { position:static; inset-inline-end:auto; width:28px; height:28px; flex:none; }
 #installBar span { font-size: 12.5px; color: var(--muted); }
+@media (min-width: 980px) { #installBar { position: static; max-width: none; margin: 0 0 16px; } }
 .eyebrow { color: var(--gold); font-size: 12px; letter-spacing: 3px; text-transform: uppercase; }
 h1 { font-weight: 800; font-size: 26px; margin-top: 4px; }
 .sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
@@ -1061,7 +1062,7 @@ async function toggleWords(el, surah, ayah) {
 }
 /* Shown in the storage card so a support question can start from a version
    number instead of "the latest one". Bump with the service worker. */
-const APP_VERSION = "31";
+const APP_VERSION = "32";
 /* Tafsir for the surahs people actually open ships with the app, so the
    commentary reads with no network at all. Anything not bundled (or an ayah
    the commentators skip) still falls through to ilm-api as before. */
@@ -2268,26 +2269,72 @@ try { // Hijri date in the app bar — computed on-device, works offline
 netBadge();
 
 
-// ================= INSTALL TO PHONE (PWA) =================
+// ================= INSTALL AS AN APP (PWA) =================
+// A phone usually gets an install prompt; a laptop often gets nothing until the browser
+// feels like offering it. The old code waited silently for that event, so a laptop user
+// saw no install bar and no way in. This always explains the menu path for the browser
+// actually in front of the reader, then upgrades to a one-click button when Chrome or
+// Edge offers the real prompt.
 (function () {
   const bar = document.getElementById("installBar");
   const msg = document.getElementById("installMsg");
   const btn = document.getElementById("installBtn");
-  const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
-  if (!bar || standalone || localStorage.getItem("ilm_install_dismissed")) return;
+  if (!bar) return;
+  const asApp = () => {
+    try {
+      return ["standalone", "minimal-ui", "window-controls-overlay", "fullscreen"]
+        .some(m => window.matchMedia("(display-mode: " + m + ")").matches) ||
+        window.navigator.standalone === true;
+    } catch (e) { return false; }
+  };
+  if (asApp()) return;
+  const ua = navigator.userAgent;
+  const isPhone = /Android|iPhone|iPad|iPod|Mobile/.test(ua);
+  const isIos = /iPhone|iPad|iPod/.test(ua) || (ua.includes("Macintosh") && navigator.maxTouchPoints > 1);
+  const isSafari = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(ua);
+  const isFirefox = /Firefox|FxiOS/.test(ua);
+  const laptop = !isPhone;
+
   let promptEvent = null;
+  const offerButton = () => {
+    if (!promptEvent) return;
+    btn.style.display = "inline-block";
+    btn.textContent = laptop ? "\u2b07 Install on this laptop" : "\u2b07 Install app";
+  };
   window.addEventListener("beforeinstallprompt", e => {
     e.preventDefault();
     promptEvent = e;
-    btn.style.display = "inline-block";
-    bar.style.display = "flex";
+    if (!localStorage.getItem("ilm_install_dismissed")) {
+      msg.textContent = laptop
+        ? "Install Ilm Daily as an app on this laptop \u2014 its own window, its own icon, and everything you download stays readable offline."
+        : "Install Ilm Daily on your phone \u2014 works offline, opens full screen.";
+      bar.style.display = "flex";
+    }
+    offerButton();
   });
-  const ua = navigator.userAgent;
-  const ios = /iPhone|iPad|iPod/.test(ua) || (ua.includes("Macintosh") && navigator.maxTouchPoints > 1);
-  if (ios) {
-    msg.textContent = "To install on iPhone/iPad: tap Share (⬆️) in Safari, then “Add to Home Screen”.";
+
+  const help = () => {
+    if (isIos) {
+      msg.textContent = "To install on iPhone/iPad: tap Share (\u2b06\ufe0f) in Safari, then \u201cAdd to Home Screen\u201d.";
+    } else if (laptop && isFirefox) {
+      msg.textContent = "Firefox on a computer cannot install web apps. Open Ilm Daily in Chrome or Edge and use the install icon in the address bar; in a Firefox tab the app and everything you download still work.";
+    } else if (laptop && isSafari) {
+      msg.textContent = "In Safari on a Mac: File \u2192 Add to Dock, and Ilm Daily becomes an app with its own icon and window.";
+    } else if (laptop) {
+      msg.textContent = "Install Ilm Daily on this laptop: click the install icon at the right of the address bar, or open the \u22ee menu and choose \u201cInstall Ilm Daily\u201d. It opens in its own window and keeps working offline.";
+    } else {
+      msg.textContent = "Open the browser menu (\u22ee) and choose \u201cInstall app\u201d or \u201cAdd to Home screen\u201d.";
+    }
     bar.style.display = "flex";
+    offerButton();
+  };
+
+  if (!localStorage.getItem("ilm_install_dismissed")) {
+    help();                              // say the right thing at once, without waiting for an event
+    setTimeout(offerButton, 1500);       // the prompt often arrives a beat later
   }
+  window.ilmInstallHelp = () => { localStorage.removeItem("ilm_install_dismissed"); help(); };
+
   btn.addEventListener("click", async () => {
     if (!promptEvent) return;
     btn.disabled = true;
@@ -2299,7 +2346,8 @@ netBadge();
     }
     btn.disabled = false;
   });
-  document.getElementById("installClose").addEventListener("click", () => {
+  const closeBtn = document.getElementById("installClose");
+  if (closeBtn) closeBtn.addEventListener("click", () => {
     bar.style.display = "none";
     localStorage.setItem("ilm_install_dismissed", "1");
   });
@@ -2713,6 +2761,17 @@ async function renderStorageCard() {
   parts.push(`<div style="color:var(--muted);font-size:12px;margin-bottom:10px">
       ${usage != null ? `${fmtBytes(usage)} used${quota ? " of " + fmtBytes(quota) + " available" : ""}. ` : ""}The Quran text, du'as, prayer times and 43 surahs of tafsir need no download at all — they ship with the app.
     </div>`);
+  const runningAsApp = (() => {
+    try {
+      return ["standalone", "minimal-ui", "window-controls-overlay"].some(m => window.matchMedia("(display-mode: " + m + ")").matches);
+    } catch (e) { return false; }
+  })();
+  parts.push(`<div class="row" style="align-items:center;gap:10px">
+      <span class="pname" style="font-size:13px">App window<br><span style="color:var(--muted);font-size:12px;font-weight:400">${runningAsApp
+        ? "installed \u2014 its own icon and window, and every download below stays offline"
+        : "running in a browser tab \u2014 install it to get its own window and icon on this device"}</span></span>
+      ${runningAsApp ? "" : `<button class="btn ghost" id="stInstallHint" style="font-size:11px;padding:4px 10px">How to install</button>`}
+    </div>`);
   parts.push(storageRow("Hadith text", inv.hadithText ? inv.hadithText + " collection" + (inv.hadithText === 1 ? "" : "s") + " saved for offline search" : "not saved — search needs a connection", inv.hadithText ? "Remove" : "", "hadith"));
   const tRem = tafsirRemaining();
   const tOff = 114 - tRem.todo.length;
@@ -2737,6 +2796,8 @@ async function renderStorageCard() {
   if (stTafsirAll) stTafsirAll.addEventListener("click", () => saveAllTafsir(stTafsirAll));
   const rf = el.querySelector("#stRefresh");
   if (rf) rf.addEventListener("click", renderStorageCard);
+  const hint = el.querySelector("#stInstallHint");
+  if (hint) hint.addEventListener("click", () => { if (window.ilmInstallHelp) window.ilmInstallHelp(); window.scrollTo({ top: 0, behavior: "smooth" }); });
 }
 function renderAlarmCard() {
   const box = $("#alarm-body");
@@ -2954,8 +3015,19 @@ function ringAlarm(key) {
   if (key !== "test") setTimeout(() => render("prayer"), 4000);
 }
 
-// boot: render after every module & config is declared
-render("prayer");
+// boot: render after every module & config is declared.
+// ?tab= lets an installed app's icon shortcuts (Quran, Hadith, Du'as) land on the right
+// screen instead of always opening the prayer card.
+(function () {
+  let want = null;
+  try { want = new URLSearchParams(location.search).get("tab"); } catch (e) {}
+  const allowed = ["prayer", "quran", "hadith", "stories", "duas"];
+  if (want && allowed.includes(want)) {
+    const btn = document.querySelector(`.tab[data-tab="${want}"]`);
+    if (btn) { btn.click(); return; }
+  }
+  render("prayer");
+})();
 </script>
 </body>
 </html>
