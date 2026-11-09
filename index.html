@@ -289,6 +289,32 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .item { transition: border-color .18s ease, transform .12s ease, background .18s ease; }
 .item:active { transform: scale(.996); }
 .tabs { padding-bottom: max(6px, env(safe-area-inset-bottom)); }
+/* ============ laptop & desktop ============ */
+/* The app was built for a phone: a single 640px column and a bottom tab bar, which on a
+   13-inch screen leaves two thirds of the window empty and reads like a stretched phone.
+   From 980px the shell widens, list-heavy tabs lay out in two columns, reading text keeps
+   a comfortable measure, and pointer hover is a real affordance rather than a no-op. */
+@media (min-width: 980px) {
+  .wrap { max-width: 1080px; padding: 18px 24px 32px; }
+  .appbar-in { max-width: 1080px; padding: 12px 24px; }
+  .tabs { left: 50%; right: auto; transform: translateX(-50%); width: 780px; border-radius: 18px 18px 0 0; }
+  .tab { max-width: none; flex-direction: row; gap: 8px; padding: 10px 6px; }
+  .tab span { font-size: 12px; }
+
+  #slist, #hbooks, #hlist { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+  #slist > *, #hbooks > *, #hlist > * { margin-bottom: 0; }
+
+  .hc-en, .hc-ar, .ar, .tr, .ayah p { max-width: 74ch; }
+  .hcard:hover, .ayah:hover, .item:hover { border-color: var(--border2); box-shadow: 0 10px 26px rgba(0,0,0,.16); }
+  html[data-theme="light"] .hcard:hover, html[data-theme="light"] .ayah:hover, html[data-theme="light"] .item:hover { box-shadow: 0 10px 26px rgba(60,55,30,.12); }
+  .item { transition: border-color .18s ease, background .18s ease, box-shadow .25s ease; }
+
+  footer::after { content: " \00b7 1\2013 5 switch tabs \00b7 / to search"; }
+}
+@media (min-width: 980px) and (pointer: fine) {
+  .btn, .iconbtn { cursor: pointer; }
+}
+
 @media (max-width: 480px) {
   .ayah .ar { font-size: 23px; line-height: 2; }
   .ayah .tr { font-size: 14px; }
@@ -446,6 +472,37 @@ function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 const PRAYER_NAMES = { fajr: "Fajr", sunrise: "Sunrise", dhuhr: "Dhuhr", asr: "Asr", maghrib: "Maghrib", isha: "Isha" };
+// Laptop keyboards: 1-5 switch tabs, / jumps to the search box on the current tab, and
+// Escape closes an open narration. The phone never needs these, hence no UI for them
+// beyond the footer hint that the wide layout adds.
+const TAB_ORDER = ["prayer", "quran", "hadith", "stories", "duas"];
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || "") || t.isContentEditable;
+  if (e.key === "Escape") {
+    const open = document.querySelector(".hcard.open, .ayah.open");
+    if (open) open.classList.remove("open");
+    const dlg = document.querySelector(".dlg-backdrop, dialog[open]");
+    if (dlg) dlg.remove();
+    return;
+  }
+  if (typing) return;
+  if (/^[1-5]$/.test(e.key)) {
+    const btn = document.querySelector(`.tab[data-tab="${TAB_ORDER[Number(e.key) - 1]}"]`);
+    if (!btn) return;
+    btn.click();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+  if (e.key === "/") {
+    const box = document.querySelector("#hsearch, #qsearch, #dsearch, input[type='search']");
+    if (!box) return;
+    e.preventDefault();
+    box.focus();
+    box.select && box.select();
+  }
+});
 document.querySelectorAll(".tab").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
@@ -1004,7 +1061,7 @@ async function toggleWords(el, surah, ayah) {
 }
 /* Shown in the storage card so a support question can start from a version
    number instead of "the latest one". Bump with the service worker. */
-const APP_VERSION = "30";
+const APP_VERSION = "31";
 /* Tafsir for the surahs people actually open ships with the app, so the
    commentary reads with no network at all. Anything not bundled (or an ayah
    the commentators skip) still falls through to ilm-api as before. */

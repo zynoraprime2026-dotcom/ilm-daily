@@ -60,3 +60,18 @@ cleanly when jsdom is absent, and pins the total, the paging offset and both hon
 Verified against live ilm-api: header "Showing 20 of 98" for patience, Load more appended
 20 more cards ("Showing 40 of 98"), audio for bukhari/1 returns 232 KB of audio/mpeg
 through /web.
+
+### 2026-11-09 13:20 — Prime: a laptop layout, not a phone stretched to 13 inches
+
+Everything above 700px was one 640px column with a phone-style bottom tab bar, so on a
+laptop the app sat in the middle of the window with two thirds empty. From 980px the shell
+widens to 1080px, the three long list tabs (Quran surahs, hadith books, hadith results) lay
+out in two columns, reading text keeps a 74ch measure so lines do not run the width of a
+desk, the tab bar widens and shows labels beside the icons, and hover finally means
+something on cards and rows. Phones are untouched: every rule sits inside min-width 980px.
+
+Keyboard, since a laptop has one: 1-5 switch tabs, / jumps to the search box on the tab you
+are on, Escape closes an open narration, and digits typed inside a field never hijack the
+tab. The footer gains a one-line hint on wide screens only. APP_VERSION 31, SW cache
+ilm-daily-v32. tests/ has no jsdom, so the shortcuts were checked in a real DOM separately;
+tests/hadith-search.test.js still passes at 1/1 with jsdom present.
