@@ -841,6 +841,195 @@ async function saveWholeQuranOffline(btn) {
         : `${savedSurahCount()}/114 saved — tap again to retry the failed ones`);
   }
 }
+
+// ---- Offline download sheet -------------------------------------------------
+// One deliberate flow instead of five scattered buttons and native confirms.
+// Each layer shows what it will cost before anything is fetched, the download
+// runs in a fixed order behind a single progress bar, and Cancel always works.
+const OFFLINE_LAYERS = [
+  { id: "audio", label: "Recitation audio", note: "play any ayah without internet" },
+  { id: "words", label: "Word-by-word text", note: "grammar, root and translation per word" },
+  { id: "wordAudio", label: "Word audio", note: "short clip for each word, for drill" },
+  { id: "tafsir", label: "Tafsir", note: "Ibn Kathir commentary per ayah" },
+];
+const MB = 1048576;
+
+function offlineSheet(n, ayahCount, meta) {
+  const existing = document.getElementById("olSheet");
+  if (existing) existing.remove();
+  const saved = isSavedOffline(n);
+  const hasWords = (() => { try { return wordsExtraSet().has(Number(n)); } catch (e) { return false; } })();
+  const hasWordAudio = (() => { try { return wordsAudioSet().has(Number(n)); } catch (e) { return false; } })();
+  const hasTafsir = (() => { try { return tafsirSavedSet().has(Number(n)); } catch (e) { return false; } })();
+  const state = { audio: saved, words: hasWords, wordAudio: hasWordAudio, tafsir: hasTafsir };
+
+  const est = {
+    audio: ayahCount * 0.13,
+    words: Math.max(0.05, ayahCount * 0.006),
+    wordAudio: ayahCount * 12 * 45000 / MB,
+    tafsir: ayahCount * 0.004,
+  };
+
+  const ov = document.createElement("div");
+  ov.id = "olSheet";
+  ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:9999;display:flex;align-items:flex-end;justify-content:center;padding:0";
+  const box = document.createElement("div");
+  box.style.cssText = "background:var(--card,#122623);color:var(--text,#f2ecdb);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:20px 18px 22px;box-shadow:0 -10px 40px rgba(0,0,0,.55)";
+  const row = (l) => `
+    <label style="display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.07);cursor:pointer">
+      <input type="checkbox" data-layer="${l.id}" ${state[l.id] ? "checked disabled" : "checked"}
+        style="margin-top:3px;width:17px;height:17px;accent-color:#c9a227;flex:0 0 auto">
+      <span style="flex:1">
+        <span style="display:block;font-size:14px;font-weight:600">${l.label}${state[l.id] ? ' <span style="color:#8fbf8f;font-weight:500">· saved</span>' : ""}</span>
+        <span style="display:block;font-size:12px;color:var(--muted);margin-top:2px">${l.note}</span>
+      </span>
+      <span style="font-size:12px;color:var(--muted);white-space:nowrap">${est[l.id] < 0.1 ? "<0.1" : est[l.id].toFixed(1)} MB</span>
+    </label>`;
+
+  box.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <div>
+        <div style="font-size:17px;font-weight:700">Download for offline</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:3px">${esc(meta ? meta.name_english : "Surah " + n)} · ${ayahCount} ayahs</div>
+      </div>
+      <button id="olClose" style="background:none;border:0;color:var(--muted);font-size:22px;line-height:1;cursor:pointer">×</button>
+    </div>
+    <div style="margin-top:14px">${OFFLINE_LAYERS.map(row).join("")}</div>
+    <div id="olTotal" style="margin-top:14px;font-size:13px;color:var(--muted)"></div>
+    <div id="olBarWrap" style="display:none;margin-top:14px">
+      <div style="height:7px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden">
+        <div id="olBar" style="height:100%;width:0%;background:linear-gradient(90deg,#c9a227,#e8cd6a);transition:width .25s"></div>
+      </div>
+      <div id="olLabel" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px">
+      <button class="btn" id="olGo" style="flex:1">Download</button>
+      <button class="btn ghost" id="olCancel">Cancel</button>
+    </div>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:12px;text-align:center">Saved on this device only. Works with no connection once finished.</div>`;
+
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
+  box.querySelector("#olClose").onclick = close;
+  box.querySelector("#olCancel").onclick = () => { dlRun.cancel = true; close(); };
+
+  const boxes = [...box.querySelectorAll("input[data-layer]")];
+  const total = () => {
+    const t = boxes.filter(b => b.checked && !b.disabled).reduce((a, b) => a + est[b.dataset.layer], 0);
+    const el = box.querySelector("#olTotal");
+    el.textContent = t ? `About ${t < 0.1 ? "<0.1" : t.toFixed(1)} MB will be downloaded` : "Nothing left to download";
+    box.querySelector("#olGo").disabled = !t;
+    return t;
+  };
+  boxes.forEach(b => b.addEventListener("change", total));
+  total();
+
+  box.querySelector("#olGo").onclick = async () => {
+    const layers = boxes.filter(b => b.checked && !b.disabled).map(b => b.dataset.layer);
+    if (!layers.length) return close();
+    box.querySelector("#olGo").disabled = true;
+    box.querySelector("#olCancel").textContent = "Stop";
+    box.querySelector("#olBarWrap").style.display = "block";
+    boxes.forEach(b => b.disabled = true);
+    const ui = {
+      bar: box.querySelector("#olBar"),
+      label: box.querySelector("#olLabel"),
+      step: (t) => { ui.label.textContent = t; },
+      pct: (p) => { ui.bar.style.width = Math.max(0, Math.min(100, p)) + "%"; },
+    };
+    await runOfflineDownload(n, ayahCount, layers, ui);
+    ui.pct(100);
+    ui.step(dlRun.cancel ? "Stopped — what finished is saved" : "✓ Saved — this surah now works offline");
+    box.querySelector("#olCancel").textContent = "Close";
+    box.querySelector("#olCancel").onclick = () => { close(); renderSurah && null; };
+    setTimeout(() => { try { renderStorageCard(); } catch (e) {} }, 50);
+  };
+}
+
+const dlRun = { cancel: false };
+
+async function runOfflineDownload(n, ayahCount, layers, ui) {
+  dlRun.cancel = false;
+  const total = layers.length;
+  let idx = 0;
+  const bump = (frac, text) => ui.pct(((idx + frac) / total) * 100) || (text && ui.step(text));
+  const bail = () => dlRun.cancel;
+
+  if (layers.includes("audio")) {
+    ui.step("Recitation audio…");
+    try {
+      const cache = await caches.open(AUDIO_CACHE);
+      const urls = surahAudioUrls(n, ayahCount);
+      let done = 0, ok = true;
+      for (const u of urls) {
+        if (bail()) break;
+        if (!(await cache.match(u))) {
+          try {
+            const r = await fetch(u);
+            if (r.ok || r.type === "opaque") await cache.put(u, r); else ok = false;
+          } catch (e) { ok = false; }
+        }
+        done++;
+        bump(done / urls.length, `Recitation audio ${done}/${urls.length}…`);
+      }
+      if (ok && !bail()) {
+        const off = offlineMap(); off[offlineKey(n)] = true;
+        localStorage.setItem("ilm_offline", JSON.stringify(off));
+      }
+    } catch (e) {}
+    idx++;
+  }
+
+  if (layers.includes("words") && !bail()) {
+    ui.step("Word-by-word text…");
+    try {
+      await cachedWordsPackVerified(n);
+      const set = wordsExtraSet(); set.add(Number(n));
+      localStorage.setItem("ilm_words_extra", JSON.stringify([...set]));
+    } catch (e) {}
+    idx++;
+  }
+
+  if (layers.includes("wordAudio") && !bail()) {
+    ui.step("Word audio…");
+    try {
+      const pack = await cachedWordsPack(n);
+      const files = [...new Set(Object.values(pack || {}).flat().map(w => w && w.a).filter(Boolean))];
+      if (files.length) {
+        const c = await caches.open(WORDS_AUDIO_CACHE);
+        let done = 0, ok = 0;
+        const queue = files.slice();
+        const worker = async () => {
+          while (queue.length && !bail()) {
+            const f = queue.shift(); const url = wordClipUrl(f);
+            try {
+              if (await c.match(url)) ok++;
+              else {
+                const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
+                if (r.ok) { await c.put(url, r.clone()); ok++; }
+              }
+            } catch (e) {}
+            done++;
+            if (done % 8 === 0 || !queue.length) bump(done / files.length, `Word audio ${done}/${files.length}…`);
+          }
+        };
+        await Promise.all(Array.from({ length: 6 }, worker));
+        if (ok) { const st = wordsAudioSet(); st.add(Number(n)); localStorage.setItem("ilm_words_audio", JSON.stringify([...st])); }
+      }
+    } catch (e) {}
+    idx++;
+  }
+
+  if (layers.includes("tafsir") && !bail()) {
+    ui.step("Tafsir…");
+    try { await fetchTafsirSurah(n, ayahCount); } catch (e) {}
+    idx++;
+  }
+  bump(1);
+}
+
 // ---- Ayah search across the bundled Quran: offline, diacritic-insensitive ----
 const AR_SKIP = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640\u0653-\u0655]/g;
 function normAr(x) {
@@ -894,11 +1083,14 @@ async function renderSurah(view, n) {
           </select>
           <button class="btn" id="playSurah">▶ Play surah</button>
           <select id="qlang" title="Quran translation language" style="max-width:210px"></select>
-          <button class="btn ghost" id="dlSurah">⬇ Save offline</button>
-          <button class="btn ghost" id="dlWords">⬇ Save words offline</button>
-          <button class="btn ghost" id="dlWordsAudio" style="display:none">⬇ Add word audio</button>
-          <button class="btn ghost" id="dlTafsir" style="display:none">⬇ Save tafsir offline</button>
-          <button class="btn ghost" id="rmSurah" style="display:none">🗑 Remove offline</button>
+          <button class="btn" id="dlSheet">⬇ Download for offline</button>
+          <div id="offlineAdvanced" style="display:none">
+            <button class="btn ghost" id="dlSurah">⬇ Save offline</button>
+            <button class="btn ghost" id="dlWords">⬇ Save words offline</button>
+            <button class="btn ghost" id="dlWordsAudio" style="display:none">⬇ Add word audio</button>
+            <button class="btn ghost" id="dlTafsir" style="display:none">⬇ Save tafsir offline</button>
+            <button class="btn ghost" id="rmSurah" style="display:none">🗑 Remove offline</button>
+          </div>
           <label class="rnote" style="margin:0;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="dsQuran"> 64kbps data saver</label>
           <span class="rnote" id="qStorage" style="margin:0"></span>
         </div>
@@ -2490,6 +2682,8 @@ function applyReciterUI(surah) {
   if (rm) rm.style.display = isSavedOffline(surah) ? "" : "none";
   const ds = document.getElementById("dsQuran");
   if (ds) ds.checked = dataSaver();
+  const dls = document.getElementById("dlSheet");
+  if (dls) dls.onclick = () => offlineSheet(n, meta ? meta.ayah_count : data.ayahs.length, meta);
   wireOfflineTools(surah);
   showSurahStorage(surah);
 }
