@@ -362,6 +362,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
     <span>Stories</span>
   </button>
+  <button class="tab" data-tab="mutoon" aria-label="Mutoon">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h9a3 3 0 0 1 3 3v13a3 3 0 0 0-3-3H4z"/><path d="M20 4h-4v16h4z"/></svg>
+    <span>Mutoon</span>
+  </button>
   <button class="tab" data-tab="duas" aria-label="Du'as">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7Z"/></svg>
     <span>Du'as</span>
@@ -476,7 +480,7 @@ const PRAYER_NAMES = { fajr: "Fajr", sunrise: "Sunrise", dhuhr: "Dhuhr", asr: "A
 // Laptop keyboards: 1-5 switch tabs, / jumps to the search box on the current tab, and
 // Escape closes an open narration. The phone never needs these, hence no UI for them
 // beyond the footer hint that the wide layout adds.
-const TAB_ORDER = ["prayer", "quran", "hadith", "stories", "duas"];
+const TAB_ORDER = ["prayer", "quran", "hadith", "mutoon", "stories", "duas"];
 document.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const t = e.target;
@@ -517,6 +521,7 @@ function render(tab) {
   else if (tab === "quran") renderSurahList(view);
   else if (tab === "hadith") renderHadith(view);
   else if (tab === "duas") renderDuaCategories(view);
+  else if (tab === "mutoon") renderMutoon(view);
   else if (tab === "stories") renderStories(view);
 }
 const METHOD_KEY = "ilm_method", ASR_KEY = "ilm_asr";
@@ -3015,13 +3020,111 @@ function ringAlarm(key) {
   if (key !== "test") setTimeout(() => render("prayer"), 4000);
 }
 
+
+// ---- Mutoon: the classical primers students memorise, in study order ----
+const MATN_LEVELS = ["all", "beginner", "intermediate", "advanced"];
+let mutoonCache = null;
+function matnCard(m) {
+  return `
+    <div class="item" data-slug="${esc(m.slug)}">
+      <div class="surah-head" style="align-items:flex-start">
+        <span class="sname" style="flex:1">
+          ${esc(m.title_english)}
+          <span class="sname-en">· ${esc(m.author)} · ${esc(m.field)}${m.verses ? " · " + m.verses + " verses" : ""}</span>
+        </span>
+        <span class="sar" style="max-width:38%">${esc(m.title_arabic)}</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <span class="pill">${esc(m.level)}</span>
+        <span class="pill">${m.form === "verse" ? "verse" : "prose"}</span>
+        ${m.audio_available ? `<span class="pill green">\u266A audio</span>` : ""}
+        ${m.ingested ? "" : `<span class="pill">text soon</span>`}
+      </div>
+    </div>`;
+}
+async function renderMutoon(view) {
+  view.innerHTML = `<div class="searchbar"><input id="msearch" placeholder="Search a matn, author or field" /></div>
+    <div class="card" style="margin:10px 12px;padding:12px 14px">
+      <div style="color:var(--gold);font-weight:600;margin-bottom:2px">Mutoon</div>
+      <div style="font-size:12px;color:var(--muted)">The primers a student memorises, in the order they are studied.</div>
+      <div id="mlevels" style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+        ${MATN_LEVELS.map(l => `<button class="btn ghost mlevel" data-l="${l}" style="font-size:12px;padding:4px 10px">${l === "all" ? "All levels" : l}</button>`).join("")}
+      </div>
+    </div>
+    <div id="mlist"><div class="loading">Loading the catalogue…</div></div>`;
+  let level = "all";
+  const draw = (filter = "") => {
+    const f = filter.trim().toLowerCase();
+    const rows = (mutoonCache || []).filter(m =>
+      (level === "all" || m.level === level) &&
+      (!f || [m.title_english, m.title_arabic, m.author, m.field].some(x => String(x || "").toLowerCase().includes(f))));
+    $("#mlist").innerHTML = rows.length ? rows.map(matnCard).join("")
+      : `<div class="empty">No matn matches that.</div>`;
+    $("#mlist").querySelectorAll(".item").forEach(el =>
+      el.addEventListener("click", () => renderMatn(view, el.dataset.slug)));
+  };
+  try {
+    if (!mutoonCache) {
+      const d = await api("/v1/mutoon");
+      mutoonCache = d.mutoon || [];
+    }
+    draw();
+    $("#msearch").addEventListener("input", e => draw(e.target.value));
+    $("#mlevels").querySelectorAll(".mlevel").forEach(b => b.addEventListener("click", () => {
+      level = b.dataset.l;
+      $("#mlevels").querySelectorAll(".mlevel").forEach(x => x.classList.toggle("active", x === b));
+      draw($("#msearch").value);
+    }));
+  } catch (e) {
+    $("#mlist").innerHTML = `<div class="empty">Could not load mutoon: ${esc(e.message)}</div>`;
+  }
+}
+async function renderMatn(view, slug) {
+  view.innerHTML = `<button class="back" id="back">\u2190 All mutoon</button><div id="mbody"><div class="loading">Loading…</div></div>`;
+  $("#back").addEventListener("click", () => renderMutoon(view));
+  const m = (mutoonCache || []).find(x => x.slug === slug);
+  if (!m) { $("#mbody").innerHTML = `<div class="empty">Unknown matn.</div>`; return; }
+  const audio = m.audio_available && m.audio_url
+    ? `<audio id="maudio" controls preload="none" src="${esc(m.audio_url)}" style="width:100%;margin-top:10px"></audio>
+       <div style="font-size:11px;color:var(--muted);margin-top:4px">${m.audio_kind === "matn" ? "Full recording \u2014 seek with the player" : "Per-line audio"}</div>`
+    : `<div style="font-size:12px;color:var(--muted);margin-top:8px">No audio for this matn yet.</div>`;
+  $("#mbody").innerHTML = `
+    <div class="card" style="text-align:center;margin:10px 12px;padding:16px">
+      <div style="font-size:22px;line-height:1.9" dir="rtl">${esc(m.title_arabic)}</div>
+      <div style="font-weight:700;margin-top:6px">${esc(m.title_english)}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">${esc(m.author)}${m.death_ah ? " \u00b7 d. " + m.death_ah + " AH" : ""}</div>
+      <div style="display:flex;gap:6px;justify-content:center;margin-top:10px;flex-wrap:wrap">
+        <span class="pill">${esc(m.field)}</span><span class="pill">${esc(m.level)}</span>
+        ${m.verses ? `<span class="pill">${m.verses} verses</span>` : ""}
+      </div>
+      ${m.note ? `<div style="font-size:13px;color:var(--muted);margin-top:10px;line-height:1.6">${esc(m.note)}</div>` : ""}
+      ${audio}
+    </div>
+    <div id="mlines"><div class="loading">Loading text…</div></div>`;
+  try {
+    const d = await api(`/v1/mutoon/${encodeURIComponent(slug)}/lines`);
+    $("#mlines").innerHTML = `<p class="note" style="text-align:left">${d.total_lines} lines${d.source ? " \u00b7 " + esc(d.source) : ""}</p>` +
+      d.lines.map(l => `
+        <div class="ayah">
+          <span class="num">${l.n}</span>
+          <div class="ar" dir="rtl">${esc(l.arabic)}</div>
+          ${l.transliteration ? `<div class="tr" style="color:var(--muted);font-style:italic">${esc(l.transliteration)}</div>` : ""}
+          ${l.translation ? `<div class="tr">${esc(l.translation)}</div>` : ""}
+        </div>`).join("");
+  } catch (e) {
+    // 409 means catalogued but not yet ingested: say that plainly instead of an error.
+    const msg = /ingested/i.test(e.message) ? "Text for this matn is not loaded yet. Audio and study notes are available above." : e.message;
+    $("#mlines").innerHTML = `<div class="empty" style="margin:10px 12px">${esc(msg)}</div>`;
+  }
+}
+
 // boot: render after every module & config is declared.
 // ?tab= lets an installed app's icon shortcuts (Quran, Hadith, Du'as) land on the right
 // screen instead of always opening the prayer card.
 (function () {
   let want = null;
   try { want = new URLSearchParams(location.search).get("tab"); } catch (e) {}
-  const allowed = ["prayer", "quran", "hadith", "stories", "duas"];
+  const allowed = ["prayer", "quran", "hadith", "mutoon", "stories", "duas"];
   if (want && allowed.includes(want)) {
     const btn = document.querySelector(`.tab[data-tab="${want}"]`);
     if (btn) { btn.click(); return; }
