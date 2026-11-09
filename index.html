@@ -869,6 +869,15 @@ async function renderSurah(view, n) {
     const dw = document.getElementById("dlWords");
     if (dw) {
       dw.textContent = wordsExtraSet().has(+n) ? "✓ Words offline — tap to remove" : "⬇ Save words offline";
+      if (wordsExtraSet().has(+n)) {
+        wordsPack(n).then(p => {
+          if (!p) {
+            dw.textContent = "⬇ Save words offline";
+            const a2 = document.getElementById("dlWordsAudio");
+            if (a2) a2.style.display = "none";
+          }
+        });
+      }
       dw.addEventListener("click", () => saveWordsPack(n, meta ? meta.ayah_count : data.ayahs.length, dw));
     }
     const dt = document.getElementById("dlTafsir");
@@ -965,7 +974,7 @@ async function toggleWords(el, surah, ayah) {
 }
 /* Shown in the storage card so a support question can start from a version
    number instead of "the latest one". Bump with the service worker. */
-const APP_VERSION = "24";
+const APP_VERSION = "25";
 /* Tafsir for the surahs people actually open ships with the app, so the
    commentary reads with no network at all. Anything not bundled (or an ayah
    the commentators skip) still falls through to ilm-api as before. */
@@ -1034,6 +1043,10 @@ async function saveTafsirPack(surah, ayahCount, btn) {
    So it is downloadable one surah at a time, exactly like the tafsir packs, and
    read from the cache when it is there. */
 const WORDS_EXTRA_CACHE = "ilm-words-extra";
+/* Bumped when the stored shape changes. v2 added each word's clip file name, so a
+   v1 pack cannot play audio; treating it as stale makes the app offer the download
+   again rather than showing a reader with no play buttons and no explanation. */
+const WORDS_PACK_FORMAT = 2;
 const WORDS_EXTRA_URL = n => `https://ilm-daily.local/words-extra/${n}.json`;
 const WORDS_PACK_CACHE = new Map();
 const wordsExtraSet = () => new Set(JSON.parse(localStorage.getItem("ilm_words_extra") || "[]"));
@@ -1043,6 +1056,7 @@ async function cachedWordsPack(n) {
     const hit = await c.match(WORDS_EXTRA_URL(n));
     if (!hit) return null;
     const d = await hit.json();
+    if (!d || d.v !== WORDS_PACK_FORMAT) return null;
     return d.ayahs || {};
   } catch (e) { return null; }
 }
@@ -1050,6 +1064,8 @@ async function cachedWordsPackVerified(n) {
   const pack = await cachedWordsPack(n);
   if (pack) return pack;
   try {
+    const c = await caches.open(WORDS_EXTRA_CACHE);
+    await c.delete(WORDS_EXTRA_URL(n));
     const set = wordsExtraSet();
     if (set.has(Number(n))) {
       set.delete(Number(n));
@@ -1214,7 +1230,7 @@ async function saveWordsPack(surah, ayahCount, btn) {
     const got = Object.keys(ayahs).length;
     if (!got) throw new Error("nothing saved");
     const c = await caches.open(WORDS_EXTRA_CACHE);
-    await c.put(WORDS_EXTRA_URL(n), new Response(JSON.stringify({ surah: n, ayahs }), { headers: { "content-type": "application/json" } }));
+    await c.put(WORDS_EXTRA_URL(n), new Response(JSON.stringify({ v: WORDS_PACK_FORMAT, surah: n, ayahs }), { headers: { "content-type": "application/json" } }));
     set.add(n);
     localStorage.setItem("ilm_words_extra", JSON.stringify([...set]));
     WORDS_PACK_CACHE.delete(n);
