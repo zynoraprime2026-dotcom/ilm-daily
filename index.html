@@ -3024,6 +3024,7 @@ function ringAlarm(key) {
 // ---- Mutoon: the classical primers students memorise, in study order ----
 const MATN_LEVELS = ["all", "beginner", "intermediate", "advanced"];
 let mutoonCache = null;
+let mutoonPaths = null;
 function matnCard(m) {
   return `
     <div class="item" data-slug="${esc(m.slug)}">
@@ -3050,6 +3051,7 @@ async function renderMutoon(view) {
       <div id="mlevels" style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
         ${MATN_LEVELS.map(l => `<button class="btn ghost mlevel" data-l="${l}" style="font-size:12px;padding:4px 10px">${l === "all" ? "All levels" : l}</button>`).join("")}
       </div>
+      <div id="mpaths" style="margin-top:12px"></div>
     </div>
     <div id="mlist"><div class="loading">Loading the catalogue…</div></div>`;
   let level = "all";
@@ -3067,8 +3069,10 @@ async function renderMutoon(view) {
     if (!mutoonCache) {
       const d = await api("/v1/mutoon");
       mutoonCache = d.mutoon || [];
+      mutoonPaths = d.paths || {};
     }
     draw();
+    paintPaths(view);
     $("#msearch").addEventListener("input", e => draw(e.target.value));
     $("#mlevels").querySelectorAll(".mlevel").forEach(b => b.addEventListener("click", () => {
       level = b.dataset.l;
@@ -3079,6 +3083,29 @@ async function renderMutoon(view) {
     $("#mlist").innerHTML = `<div class="empty">Could not load mutoon: ${esc(e.message)}</div>`;
   }
 }
+// The study order is the point of the collection: handing someone twelve texts
+// alphabetically is worse than useless, so the paths are shown first and each
+// step opens the matn itself.
+function paintPaths(view) {
+  const box = $("#mpaths");
+  if (!box || !mutoonPaths) return;
+  const entries = Object.entries(mutoonPaths);
+  if (!entries.length) return;
+  box.innerHTML = `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Study paths \u2014 start at the top of a path and walk down</div>
+    ${entries.map(([name, slugs]) => {
+      const titles = slugs.map(s => (mutoonCache || []).find(m => m.slug === s)).filter(Boolean);
+      return `<div class="mpath" style="border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin-bottom:8px">
+        <div style="font-weight:600;font-size:13px;text-transform:capitalize">${esc(name.replace(/-/g, " "))}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+          ${titles.map(t => `<button class="btn ghost mpath-go" data-slug="${esc(t.slug)}" style="font-size:12px;padding:4px 9px">${esc(t.title_english)}</button>`).join("")}
+        </div>
+      </div>`;
+    }).join("")}`;
+  box.querySelectorAll(".mpath-go").forEach(b =>
+    b.addEventListener("click", () => renderMatn(view, b.dataset.slug)));
+}
+
 async function renderMatn(view, slug) {
   view.innerHTML = `<button class="back" id="back">\u2190 All mutoon</button><div id="mbody"><div class="loading">Loading…</div></div>`;
   $("#back").addEventListener("click", () => renderMutoon(view));
