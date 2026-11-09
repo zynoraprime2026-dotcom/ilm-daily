@@ -1791,41 +1791,57 @@ function renderHadith(view) {
       $("#hbooks").innerHTML = `<div class="empty">Could not load books: ${esc(e.message)}</div>`;
     }
   })();
+  // Search every collection that is actually saved, not a hardcoded six editions,
+  // and reuse this for the weak-connection case so a failed API call reads as
+  // "offline results" instead of an error screen.
+  const offlineHadithSearchHTML = async (q, fellBack) => {
+    const ql = q.toLowerCase();
+    const wantAr = /[\u0600-\u06FF]/.test(q);
+    const needleAr = wantAr ? normAr(q) : null;
+    const out = [];
+    for (const slug of Object.keys(HADITH_BOOKS)) {
+      if (!(await hadithSaved(slug))) continue;
+      let recs;
+      try { recs = await offlineHadithLines(slug); } catch { continue; }
+      for (const r of recs) {
+        const hit = wantAr ? normAr(r.ar).includes(needleAr) : (r.en || "").toLowerCase().includes(ql);
+        if (hit) {
+          out.push({ coll: hbMeta(slug).name || slug, rec: r });
+          if (out.length >= 20) break;
+        }
+      }
+      if (out.length >= 20) break;
+    }
+    if (!out.length) {
+      return `<div class="empty">${fellBack ? "Network unavailable" : "Offline"}: no matches in saved texts. Save books with \u2B07 to search without internet.</div>`;
+    }
+    return `<p class="note" style="text-align:left">${out.length} results \u2014 offline search${fellBack ? " (network unavailable)" : ""}</p>` + out.map(x => `
+      <div class="ayah hcard" style="cursor:default" onclick="this.classList.toggle('open')">
+        <div class="hadith-meta">
+          <span class="pill">${esc(x.coll)}</span>
+          <span class="pill">No. ${esc(x.rec.n)}</span>
+          ${x.rec.g ? `<span class="pill green">${esc(x.rec.g)}</span>` : ""}
+        </div>
+        ${x.rec.ar ? `<div class="ar" style="font-size:19px;margin-bottom:8px">${esc(x.rec.ar)}</div>` : ""}
+        <div class="tr" style="color:var(--text)">${x.rec.w ? "Narrated " + esc(x.rec.w) + ": " : ""}${esc(x.rec.en)}</div>
+      </div>`).join("");
+  };
   const run = async () => {
     const q = $("#hsearch").value.trim();
     if (!q) return;
     $("#hresults").innerHTML = `<div class="loading">Searching…</div>`;
     if (!navigator.onLine) {
-      const ql = q.toLowerCase();
-      const out = [];
-      for (const slug of Object.keys(OFFLINE_HADITH_S)) {
-        if (!await hadithSaved(slug)) continue;
-        let recs;
-        try { recs = await offlineHadithLines(slug); } catch { continue; }
-        for (const r of recs) {
-          if ((r.en || "").toLowerCase().includes(ql) || (r.ar || "").includes(q)) {
-            out.push({ coll: hbMeta(slug).name || slug, rec: r });
-            if (out.length >= 20) break;
-          }
-        }
-        if (out.length >= 20) break;
-      }
-      $("#hresults").innerHTML = out.length === 0
-        ? `<div class="empty">Offline: no matches in saved texts. Save books with \u2B07 to search without internet.</div>`
-        : `<p class="note" style="text-align:left">${out.length} results — offline search</p>` + out.map(x => `
-            <div class="ayah hcard" style="cursor:default" onclick="this.classList.toggle('open')">
-              <div class="hadith-meta">
-                <span class="pill">${esc(x.coll)}</span>
-                <span class="pill">No. ${esc(x.rec.n)}</span>
-                ${x.rec.g ? `<span class="pill green">${esc(x.rec.g)}</span>` : ""}
-              </div>
-              ${x.rec.ar ? `<div class="ar" style="font-size:19px;margin-bottom:8px">${esc(x.rec.ar)}</div>` : ""}
-              <div class="tr" style="color:var(--text)">${x.rec.w ? "Narrated " + esc(x.rec.w) + ": " : ""}${esc(x.rec.en)}</div>
-            </div>`).join("");
+      $("#hresults").innerHTML = await offlineHadithSearchHTML(q, false);
       return;
     }
     try {
-      const data = await api(`/v1/hadith/search?q=${encodeURIComponent(q)}`);
+      let data = null;
+      try { data = await api(`/v1/hadith/search?q=${encodeURIComponent(q)}`); } catch (_) { data = null; }
+      if (!data) {
+        // Weak connection in the field: the saved library still answers.
+        $("#hresults").innerHTML = await offlineHadithSearchHTML(q, true);
+        return;
+      }
       $("#hresults").innerHTML = data.count === 0
         ? `<div class="empty">No hadith found for "${esc(q)}".</div>`
         : `<p class="note" style="text-align:left">${data.count} results for "${esc(q)}" — showing first 20</p>` +
