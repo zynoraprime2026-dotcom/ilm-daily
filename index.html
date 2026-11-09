@@ -365,11 +365,38 @@ async function hadithSaved(slug) {
   if (!("caches" in window)) return false;
   return !!(await (await caches.open(HADITH_TEXT_CACHE)).match(`./hadith/${slug}.ndjson`));
 }
+// Six editions ship inside the app as ndjson. The other ten the API serves are
+// streamed once and stored in the same shape, so reading them offline later
+// behaves exactly like a bundled collection instead of throwing 404.
+async function apiHadithAll(slug, onProgress) {
+  const out = [];
+  let page = 1, totalPages = 1;
+  for (;;) {
+    const d = await api(`/v1/hadith/${slug}?limit=100&page=${page}`);
+    totalPages = d.total_pages || 1;
+    for (const h of (d.hadiths || [])) {
+      out.push({ n: h.hadith_number, b: h.book_number, g: h.grade, w: h.narrator, ar: h.text_arabic, en: h.text_english });
+    }
+    onProgress && onProgress(page, totalPages);
+    if (!d.has_next || page >= totalPages) break;
+    page++;
+  }
+  return out;
+}
 async function saveHadithText(slug, onProgress) {
   const c = await caches.open(HADITH_TEXT_CACHE);
-  const r = await fetch(`./hadith/${slug}.ndjson`);
-  if (!r.ok) throw new Error("download failed");
-  await c.put(`./hadith/${slug}.ndjson`, r.clone());
+  try {
+    const r = await fetch(`./hadith/${slug}.ndjson`);
+    if (r.ok) {
+      await c.put(`./hadith/${slug}.ndjson`, r.clone());
+      onProgress && onProgress(1, 1);
+      return;
+    }
+  } catch (_) { /* not bundled: fall through to the API */ }
+  const recs = await apiHadithAll(slug, onProgress);
+  if (!recs.length) throw new Error("download failed");
+  const body = recs.map(r => JSON.stringify(r)).join("\n");
+  await c.put(`./hadith/${slug}.ndjson`, new Response(body, { headers: { "content-type": "application/x-ndjson" } }));
   onProgress && onProgress(1, 1);
 }
 </script>
