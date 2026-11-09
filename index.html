@@ -4,11 +4,43 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Ilm Daily — Prayer & Quran</title>
+<meta name="description" content="Prayer times with a salat alarm, the full Quran with tafsir, hadith, du'as and prophetic stories — most of it readable with no connection at all." />
+<meta name="theme-color" content="#0f2121" />
+<meta name="color-scheme" content="dark light" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Ilm Daily" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Ilm Daily — Prayer, Quran & Hadith" />
+<meta property="og:description" content="Prayer times, the Quran with tafsir, hadith, du'as and stories. Works offline." />
+<meta property="og:image" content="./icon-512.png" />
+<link rel="apple-touch-icon" href="./icon-192.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="preconnect" href="https://ilm-api.vercel.app" />
 <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script>document.documentElement.dataset.theme = localStorage.getItem("ilm_theme") || "dark";</script>
+<script>
+/* Boot watchdog. The whole app is one inline script, so a single fatal error used to
+   leave a blank screen with no explanation (that is how v11 shipped). If nothing has
+   rendered a few seconds in, say so plainly and offer a reload that bypasses the cache. */
+window.addEventListener("error", function (e) {
+  window.__ilmError = (e && e.message) || "script error";
+});
+setTimeout(function () {
+  try {
+    var v = document.getElementById("view");
+    if (v && v.children.length === 0) {
+      v.innerHTML = '<div class="card" style="margin:16px;text-align:center;line-height:1.6">'
+        + '<b>Ilm Daily could not start.</b><br>'
+        + '<span style="color:var(--muted);font-size:13px">' + (window.__ilmError || "A script did not finish loading.") + '</span><br><br>'
+        + '<button class="btn" onclick="location.reload(true)">Reload</button> '
+        + '<button class="btn ghost" onclick="(async()=>{for(const k of await caches.keys())await caches.delete(k);location.reload()})()">Clear cache &amp; reload</button>'
+        + '</div>';
+    }
+  } catch (e) {}
+}, 6000);
+</script>
 
 <style>
 /* ============ design tokens (matching the Ilm Dictionary family) ============ */
@@ -425,7 +457,8 @@ async function renderPrayer(view) {
     </div>
     <div id="prayer-body"><div class="loading">Loading prayer times…</div></div>
     <p class="note">Times shown in your device's local time. Default location is Tarkwa, Ghana.</p>
-    <div id="alarm-body" class="card" style="margin-top:14px"></div>`;
+    <div id="alarm-body" class="card" style="margin-top:14px"></div>
+    <div id="storage-body" class="card" style="margin-top:14px"></div>`;
   $("#gps").addEventListener("click", () => {
     if (!navigator.geolocation) return alert("GPS not supported on this device");
     $("#gps").textContent = "Locating…";
@@ -477,9 +510,11 @@ async function renderPrayer(view) {
     if (next) tickCountdown(next.at);
     scheduleSalatAlarms(times);
     renderAlarmCard();
+    renderStorageCard();
   } catch (e) {
     body.innerHTML = `<div class="empty">Could not load prayer times: ${esc(e.message)}</div>`;
     renderAlarmCard();
+    renderStorageCard();
   }
 }
 function tickCountdown(target) {
@@ -898,6 +933,9 @@ async function toggleWords(el, surah, ayah) {
     el.querySelector(".wbw").innerHTML = `<div class="empty">Could not load words: ${esc(e.message)}</div>`;
   }
 }
+/* Shown in the storage card so a support question can start from a version
+   number instead of "the latest one". Bump with the service worker. */
+const APP_VERSION = "22";
 /* Tafsir for the surahs people actually open ships with the app, so the
    commentary reads with no network at all. Anything not bundled (or an ayah
    the commentators skip) still falls through to ilm-api as before. */
@@ -954,11 +992,28 @@ async function saveTafsirPack(surah, ayahCount, btn) {
     localStorage.setItem("ilm_tafsir_extra", JSON.stringify([...set]));
     TAFSIR_PACK_CACHE.delete("x" + n);
     const got = Object.keys(ayahs).length;
+    if (!got) throw new Error("nothing saved");
     btn.textContent = `✓ Tafsir offline (${got}/${ayahCount})`;
   } catch (e) {
     btn.textContent = "Tafsir pack failed — tap to retry";
   }
   btn.disabled = false;
+}
+/* A pack can be lost without the marker being cleared: the browser evicts Cache
+   Storage under pressure, or the user clears site data. The button then still says
+   "saved" while tafsir silently goes to the network. Drop the marker when the pack
+   is genuinely gone, so the UI never lies about what works offline. */
+async function cachedTafsirPackVerified(n) {
+  const pack = await cachedTafsirPack(n);
+  if (pack) return pack;
+  try {
+    const set = extraTafsirSet();
+    if (set.has(Number(n))) {
+      set.delete(Number(n));
+      localStorage.setItem("ilm_tafsir_extra", JSON.stringify([...set]));
+    }
+  } catch (e) {}
+  return null;
 }
 function tafsirPack(surah) {
   const n = Number(surah);
@@ -969,7 +1024,7 @@ function tafsirPack(surah) {
     return TAFSIR_PACK_CACHE.get(n);
   }
   if (extraTafsirSet().has(n)) {
-    if (!TAFSIR_PACK_CACHE.has("x" + n)) TAFSIR_PACK_CACHE.set("x" + n, cachedTafsirPack(n));
+    if (!TAFSIR_PACK_CACHE.has("x" + n)) TAFSIR_PACK_CACHE.set("x" + n, cachedTafsirPackVerified(n));
     return TAFSIR_PACK_CACHE.get("x" + n);
   }
   return Promise.resolve(null);
@@ -2085,6 +2140,84 @@ let adhanAudio = null;
 
 function saveAlarm() { localStorage.setItem(ALARM_KEY, JSON.stringify(alarmCfg)); }
 
+/* ---- Offline & storage -------------------------------------------------
+   The app deliberately downloads a lot: hadith text, Quran audio, optional
+   tafsir packs. Without a place to see and clear that, a phone fills up and
+   nobody knows why, and "does it work offline?" becomes guesswork. */
+function fmtBytes(n) {
+  if (!n) return "0 B";
+  const u = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i === 0 ? Math.round(n) : n.toFixed(n < 10 ? 1 : 0)) + " " + u[i];
+}
+async function cacheInventory() {
+  const inv = { hadithText: 0, tafsirExtra: 0, audio: 0, shell: 0 };
+  try { inv.hadithText = (await (await caches.open(HADITH_TEXT_CACHE)).keys()).length; } catch (e) {}
+  try { inv.tafsirExtra = extraTafsirSet().size; } catch (e) {}
+  try { inv.audio = (await (await caches.open(AUDIO_CACHE)).keys()).length; } catch (e) {}
+  try {
+    const names = await caches.keys();
+    inv.shell = names.filter(n => n.startsWith("ilm-daily") || n === "ilm-tafsir").length;
+  } catch (e) {}
+  return inv;
+}
+async function clearDownloads(which) {
+  const label = which === "all" ? "every offline download (hadith text, tafsir packs and Quran audio)"
+    : which === "hadith" ? "the saved hadith text"
+    : which === "tafsir" ? "the downloaded tafsir packs"
+    : "the saved Quran audio";
+  if (!confirm(`Remove ${label}? Your settings and bookmarks are kept.`)) return;
+  try {
+    if (which === "hadith" || which === "all") await caches.delete(HADITH_TEXT_CACHE);
+    if (which === "tafsir" || which === "all") {
+      await caches.delete(TAFSIR_EXTRA_CACHE);
+      localStorage.setItem("ilm_tafsir_extra", "[]");
+      TAFSIR_PACK_CACHE.clear();
+    }
+    if (which === "audio" || which === "all") await caches.delete(AUDIO_CACHE);
+  } catch (e) {}
+  renderStorageCard();
+}
+function storageRow(label, detail, action, which) {
+  return `<div class="row" style="align-items:center;gap:10px">
+    <span class="pname" style="font-size:13px">${label}<br><span style="color:var(--muted);font-size:12px;font-weight:400">${detail}</span></span>
+    ${action ? `<button class="btn ghost" data-clear="${which}" style="font-size:11px;padding:4px 10px">${action}</button>` : ""}
+  </div>`;
+}
+async function renderStorageCard() {
+  const el = document.getElementById("storage-body");
+  if (!el) return;
+  el.innerHTML = `<div class="loading">Checking offline storage…</div>`;
+  let usage = null, quota = null;
+  try {
+    if (navigator.storage && navigator.storage.estimate) {
+      const est = await navigator.storage.estimate();
+      usage = est.usage; quota = est.quota;
+    }
+  } catch (e) {}
+  const inv = await cacheInventory();
+  const parts = [];
+  parts.push(`<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+      <b style="font-size:14px">Offline &amp; storage</b>
+      <span style="color:var(--muted);font-size:12px">v${esc(APP_VERSION)}</span>
+    </div>`);
+  parts.push(`<div style="color:var(--muted);font-size:12px;margin-bottom:10px">
+      ${usage != null ? `${fmtBytes(usage)} used${quota ? " of " + fmtBytes(quota) + " available" : ""}. ` : ""}The Quran text, du'as, prayer times and 43 surahs of tafsir need no download at all — they ship with the app.
+    </div>`);
+  parts.push(storageRow("Hadith text", inv.hadithText ? inv.hadithText + " collection" + (inv.hadithText === 1 ? "" : "s") + " saved for offline search" : "not saved — search needs a connection", inv.hadithText ? "Remove" : "", "hadith"));
+  parts.push(storageRow("Extra tafsir packs", inv.tafsirExtra ? inv.tafsirExtra + " surah" + (inv.tafsirExtra === 1 ? "" : "s") + " downloaded by hand" : "none — the 43 bundled surahs are already offline", inv.tafsirExtra ? "Remove" : "", "tafsir"));
+  parts.push(storageRow("Quran audio", inv.audio ? inv.audio + " ayah recordings cached" : "none saved", inv.audio ? "Remove" : "", "audio"));
+  const any = inv.hadithText || inv.tafsirExtra || inv.audio;
+  parts.push(`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+      ${any ? `<button class="btn ghost" data-clear="all" style="font-size:12px;padding:6px 12px">Clear all downloads</button>` : ""}
+      <button class="btn ghost" id="stRefresh" style="font-size:12px;padding:6px 12px">Refresh</button>
+    </div>`);
+  el.innerHTML = parts.join("");
+  el.querySelectorAll("[data-clear]").forEach(b => b.addEventListener("click", () => clearDownloads(b.dataset.clear)));
+  const rf = el.querySelector("#stRefresh");
+  if (rf) rf.addEventListener("click", renderStorageCard);
+}
 function renderAlarmCard() {
   const box = $("#alarm-body");
   if (!box) return;
