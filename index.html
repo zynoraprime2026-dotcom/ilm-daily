@@ -1004,7 +1004,7 @@ async function toggleWords(el, surah, ayah) {
 }
 /* Shown in the storage card so a support question can start from a version
    number instead of "the latest one". Bump with the service worker. */
-const APP_VERSION = "28";
+const APP_VERSION = "29";
 /* Tafsir for the surahs people actually open ships with the app, so the
    commentary reads with no network at all. Anything not bundled (or an ayah
    the commentators skip) still falls through to ilm-api as before. */
@@ -1069,7 +1069,10 @@ function tafsirRemaining() {
     todo.push(n);
     ayahs += counts[n] || 0;
   }
-  return { todo, ayahs, mb: Math.round(ayahs * TAFSIR_BYTES_PER_AYAH / 1048576) };
+  // quran.js is loaded lazily on the first Quran-tab visit, so ayah counts are not
+  // always in hand. Report no size rather than "0 MB", and let the download itself
+  // call ensureQuran() before it quotes a figure.
+  return { todo, ayahs, mb: ayahs ? Math.round(ayahs * TAFSIR_BYTES_PER_AYAH / 1048576) : null };
 }
 /* Ibn Kathir for the whole Quran, one tap. The 43 bundled surahs already read
    offline; this pulls the remaining 71 so a reader outside Juz 30 does not have to
@@ -1079,19 +1082,22 @@ function tafsirRemaining() {
 let TAFSIR_ALL_RUN = false;
 async function saveAllTafsir(btn) {
   if (TAFSIR_ALL_RUN) return;
+  btn.disabled = true;
+  try { await ensureQuran(); } catch (e) {}       // exact ayah counts, so an honest size
+  btn.disabled = false;
   const { todo, mb } = tafsirRemaining();
   if (!todo.length) { btn.textContent = "✓ All 114 offline"; return; }
   const counts = surahAyahCounts();
   try {
     if (navigator.storage && navigator.storage.estimate) {
       const est = await navigator.storage.estimate();
-      if (est.quota && est.usage && est.quota - est.usage < mb * 1048576 * 1.3) {
+      if (mb && est.quota && est.usage && est.quota - est.usage < mb * 1048576 * 1.3) {
         alert(`Not enough free space: this needs about ${mb} MB.`);
         return;
       }
     }
   } catch (e) {}
-  if (!confirm(`Download Ibn Kathir tafsir for the ${todo.length} surahs not bundled with the app?\n\nAbout ${mb} MB. Each surah is saved as it finishes, so you can stop and pick it up later.`)) return;
+  if (!confirm(`Download Ibn Kathir tafsir for the ${todo.length} surahs not bundled with the app?\n\n${mb ? "About " + mb + " MB. " : ""}Each surah is saved as it finishes, so you can stop and pick it up later.`)) return;
   TAFSIR_ALL_RUN = true;
   btn.disabled = true;
   let ok = 0, i = 0;
@@ -2571,7 +2577,7 @@ async function renderStorageCard() {
   const tRem = tafsirRemaining();
   const tOff = 114 - tRem.todo.length;
   parts.push(`<div class="row" style="align-items:center;gap:10px">
-      <span class="pname" style="font-size:13px">Ibn Kathir tafsir<br><span style="color:var(--muted);font-size:12px;font-weight:400">${tOff} of 114 surahs offline${tRem.todo.length ? ` · ${tRem.todo.length} left, about ${tRem.mb} MB` : ""}${inv.tafsirExtra ? ` · ${inv.tafsirExtra} downloaded here` : ""}</span></span>
+      <span class="pname" style="font-size:13px">Ibn Kathir tafsir<br><span style="color:var(--muted);font-size:12px;font-weight:400">${tOff} of 114 surahs offline${tRem.todo.length ? ` · ${tRem.todo.length} left${tRem.mb ? ", about " + tRem.mb + " MB" : ""}` : ""}${inv.tafsirExtra ? ` · ${inv.tafsirExtra} downloaded here` : ""}</span></span>
       <span style="display:flex;gap:6px;flex-wrap:wrap">
         ${tRem.todo.length ? `<button class="btn ghost" id="stTafsirAll" style="font-size:11px;padding:4px 10px">⬇ Download all</button>` : ""}
         ${inv.tafsirExtra ? `<button class="btn ghost" data-clear="tafsir" style="font-size:11px;padding:4px 10px">Remove</button>` : ""}
