@@ -18,3 +18,26 @@ offline downloads users had made (and their localStorage markers survived, so th
 went on claiming packs that no longer existed). Activate now deletes only earlier
 ilm-daily-v<N> shell caches. If you add a cache bucket, you no longer need to register
 it anywhere.
+
+### 2026-11-09 02:20 — Prime: Ibn Kathir tafsir downloadable for the whole Quran (v29)
+
+The owner asked for Kathir tafsir "to be downloaded". Only 43 surahs shipped commentary;
+the other 71 needed a reader to open each surah and press a button in it, seventy-one
+times, for the part of the Quran most people actually study.
+
+Added to the Offline & storage card: a row reading "Ibn Kathir tafsir · 43 of 114 surahs
+offline · 71 left" with "⬇ Download all". It fetches every missing surah, names the surah
+and the percentage inside it, and commits each surah to its own cache entry as it
+finishes, so an interrupted run resumes where it stopped. It confirm-asks with an honest
+MB figure (5,268 ayahs across the 71, about 58 MB at the measured 11.5 KB of commentary
+per ayah) and checks free space first.
+
+Per-surah button and bulk download now share fetchTafsirSurah, so pack format, cache key
+and marker live in one place. Buttons say "Ibn Kathir" instead of a vague "tafsir".
+APP_VERSION 29, SW cache ilm-daily-v29.
+
+Gotcha found while testing: quran.js loads lazily on the first Quran-tab visit, so ayah
+counts are absent on a fresh phone and the row first read "about 0 MB". The card now omits
+the size when counts are not loaded, and the download calls ensureQuran() before quoting
+its figure. Verified live: surah 77 (previously unbundled) downloaded 50/50 and its ayah 1
+renders Ibn Kathir from the pack.
