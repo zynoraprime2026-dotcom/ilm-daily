@@ -1091,7 +1091,7 @@ async function renderSurah(view, n) {
             <button class="btn ghost" id="dlTafsir" style="display:none">⬇ Save tafsir offline</button>
             <button class="btn ghost" id="rmSurah" style="display:none">🗑 Remove offline</button>
           </div>
-          <label class="rnote" style="margin:0;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="dsQuran"> 64kbps data saver</label>
+          <span class="rnote" style="margin:0">Recordings are served by the Ilm API and saved on this device</span>
           <span class="rnote" id="qStorage" style="margin:0"></span>
         </div>
       </div>
@@ -1451,7 +1451,7 @@ function wordsPack(surah) {
    beginner. It is a separate, explicit download because the whole Quran is
    about 3.3 GB, Al-Baqarah alone roughly 270 MB. */
 const WORDS_AUDIO_CACHE = "ilm-words-audio";
-const WORDS_AUDIO_BASE = "https://audio.qurancdn.com/wbw/";
+const WORDS_AUDIO_BASE = `${API}/media/word-audio/`;
 const WORD_AUDIO_BYTES = 45000; // measured average, used only for the estimate
 const wordsAudioSet = () => new Set(JSON.parse(localStorage.getItem("ilm_words_audio") || "[]"));
 const wordClipUrl = file => WORDS_AUDIO_BASE + file;
@@ -2554,26 +2554,26 @@ netBadge();
   });
 })();
 
-// ================= QURAN AUDIO (everyayah.com + mp3quran.net CDNs) =================
+// ================= QURAN AUDIO (served by the Ilm API) =================
+// Every clip comes from our own API rather than everyayah.com or cdn.mp3quran.net:
+// one origin means offline caching actually works, saving a clip behaves like a
+// file, and a learner's connection never lands on a third-party CDN.
 const RECITERS = {
-  alafasy: { name: "Mishary Alafasy", dir: "Alafasy_128kbps", dir64: "Alafasy_64kbps" },
-  husary: { name: "Mahmoud Al-Husary", dir: "Husary_128kbps", dir64: "Husary_64kbps" },
-  minshawi: { name: "Al-Minshawi", dir: "Minshawy_Murattal_128kbps", dir64: "" },
-  islam_sobhi: { name: "Islam Sobhi", fullSurah: true }
+  alafasy: { name: "Mishary Alafasy", slug: "ar.alafasy" },
+  husary: { name: "Mahmoud Al-Husary", slug: "ar.husary" },
+  minshawi: { name: "Al-Minshawi", slug: "ar.minshawi" },
+  islam_sobhi: { name: "Islam Sobhi", slug: "islam_sobhi", fullSurah: true }
 };
 let qAudio = null;
 const curReciter = () => localStorage.getItem("ilm_reciter") || "alafasy";
 const curRecInfo = () => RECITERS[curReciter()] || RECITERS.alafasy;
 const pad3 = v => String(v).padStart(3, "0");
-// data saver: the 64kbps folders halve offline storage at no real cost to recitation
-const dataSaver = () => localStorage.getItem("ilm_data_saver") === "1";
+// One bitrate, because the API serves the reciter's published edition as-is.
 function ayahURL(surah, ayah) {
-  const r = curRecInfo();
-  const dir = (dataSaver() && r.dir64) ? r.dir64 : r.dir;
-  return `https://everyayah.com/data/${dir}/${pad3(surah)}${pad3(ayah)}.mp3`;
+  return `${API}/quran/${surah}/${ayah}/audio?reciter=${curRecInfo().slug}&stream=1`;
 }
 function surahAudioURL(surah) {
-  return `https://cdn.mp3quran.net/audio/islam-sobhi/r1/${pad3(surah)}.mp3`;
+  return `${API}/media/surah-audio/${surah}?reciter=islam_sobhi`;
 }
 function surahAudioUrls(surah, totalAyahs) {
   return curRecInfo().fullSurah
@@ -2680,17 +2680,14 @@ function applyReciterUI(surah) {
   }
   const rm = document.getElementById("rmSurah");
   if (rm) rm.style.display = isSavedOffline(surah) ? "" : "none";
-  const ds = document.getElementById("dsQuran");
-  if (ds) ds.checked = dataSaver();
   const dls = document.getElementById("dlSheet");
   if (dls) dls.onclick = () => offlineSheet(n, meta ? meta.ayah_count : data.ayahs.length, meta);
   wireOfflineTools(surah);
   showSurahStorage(surah);
 }
-// ---- Offline tools: storage meter, remove a saved surah, 64kbps data saver ----
+// ---- Offline tools: storage meter, remove a saved surah ----
 function surahCachePrefixes(surah) {
-  const r = curRecInfo();
-  return [r.dir, r.dir64].filter(Boolean).map(d => `/data/${d}/${pad3(surah)}`);
+  return [`/quran/${surah}/`, `/media/surah-audio/${surah}`];
 }
 async function surahOfflineBytes(surah) {
   if (!("caches" in window)) return { bytes: 0, n: 0 };
@@ -2713,7 +2710,7 @@ async function showSurahStorage(surah) {
   const el = document.getElementById("qStorage");
   if (!el) return;
   if (!isSavedOffline(surah)) {
-    el.textContent = dataSaver() ? "whole Quran \u2248 150 MB at 64kbps" : "whole Quran \u2248 300 MB at 128kbps";
+    el.textContent = "whole Quran \u2248 300 MB of recordings";
     return;
   }
   const { bytes, n } = await surahOfflineBytes(surah);
@@ -2736,13 +2733,8 @@ async function removeSurahOffline(surah, btn) {
 function wireOfflineTools(surah) {
   const rm = document.getElementById("rmSurah");
   if (rm && !rm.dataset.wired) { rm.dataset.wired = "1"; rm.addEventListener("click", () => removeSurahOffline(surah, rm)); }
-  const ds = document.getElementById("dsQuran");
+  const ds = null;
   if (ds && !ds.dataset.wired) {
-    ds.dataset.wired = "1";
-    ds.addEventListener("change", () => {
-      localStorage.setItem("ilm_data_saver", ds.checked ? "1" : "0");
-      applyReciterUI(surah);
-    });
   }
 }
 async function saveSurahOffline(surah, totalAyahs, btn) {
@@ -2874,7 +2866,7 @@ function memStep() {
 
 // ================= SALAT ALARM =================
 const ALARM_KEY = "ilm_alarm";
-const ADHAN_URL = "https://www.islamcan.com/audio/adhan/azan1.mp3";
+const ADHAN_URL = `${API}/media/adhan.mp3`;
 let alarmCfg = JSON.parse(localStorage.getItem(ALARM_KEY) || "null") ||
   { on: false, push: false, sound: "adhan", prayers: { fajr: true, dhuhr: true, asr: true, maghrib: true, isha: true, daily: true } };
 let alarmTimers = [];
