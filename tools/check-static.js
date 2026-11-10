@@ -26,6 +26,9 @@ function localRefs(html) {
   LOCAL_REF.lastIndex = 0;
   while ((m = LOCAL_REF.exec(html))) {
     const ref = m[1].trim();
+    // A template expression is a runtime value, not a path: src="${esc(m.pdf_url)}"
+    // is built from data, so checking it against the filesystem is meaningless.
+    if (ref.includes('${')) continue;
     if (!ref.startsWith('http') && !ref.startsWith('data:') && !ref.startsWith('#')) out.add(ref);
   }
   return out;

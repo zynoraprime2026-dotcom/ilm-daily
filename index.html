@@ -1451,7 +1451,7 @@ function wordsPack(surah) {
    beginner. It is a separate, explicit download because the whole Quran is
    about 3.3 GB, Al-Baqarah alone roughly 270 MB. */
 const WORDS_AUDIO_CACHE = "ilm-words-audio";
-const WORDS_AUDIO_BASE = `${API}/media/word-audio/`;
+const WORDS_AUDIO_BASE = `${API}/v1/media/word-audio/`;
 const WORD_AUDIO_BYTES = 45000; // measured average, used only for the estimate
 const wordsAudioSet = () => new Set(JSON.parse(localStorage.getItem("ilm_words_audio") || "[]"));
 const wordClipUrl = file => WORDS_AUDIO_BASE + file;
@@ -2570,10 +2570,10 @@ const curRecInfo = () => RECITERS[curReciter()] || RECITERS.alafasy;
 const pad3 = v => String(v).padStart(3, "0");
 // One bitrate, because the API serves the reciter's published edition as-is.
 function ayahURL(surah, ayah) {
-  return `${API}/quran/${surah}/${ayah}/audio?reciter=${curRecInfo().slug}&stream=1`;
+  return `${API}/v1/quran/${surah}/${ayah}/audio?reciter=${curRecInfo().slug}&stream=1`;
 }
 function surahAudioURL(surah) {
-  return `${API}/media/surah-audio/${surah}?reciter=islam_sobhi`;
+  return `${API}/v1/media/surah-audio/${surah}?reciter=islam_sobhi`;
 }
 function surahAudioUrls(surah, totalAyahs) {
   return curRecInfo().fullSurah
@@ -2866,7 +2866,7 @@ function memStep() {
 
 // ================= SALAT ALARM =================
 const ALARM_KEY = "ilm_alarm";
-const ADHAN_URL = `${API}/media/adhan.mp3`;
+const ADHAN_URL = `${API}/v1/media/adhan.mp3`;
 let alarmCfg = JSON.parse(localStorage.getItem(ALARM_KEY) || "null") ||
   { on: false, push: false, sound: "adhan", prayers: { fajr: true, dhuhr: true, asr: true, maghrib: true, isha: true, daily: true } };
 let alarmTimers = [];

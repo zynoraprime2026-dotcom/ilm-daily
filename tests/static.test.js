@@ -41,6 +41,18 @@ test('the real repository passes all checks', () => {
   assert.deepStrictEqual(errors, []);
 });
 
+test('a template expression in an attribute is not treated as a file', () => {
+  const dir = fixture({
+    ...HEALTHY,
+    'index.html': `<!doctype html><html><head>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <script src="app.js"></script>
+    </head><body><a href="${'${'}esc(item.url)}">x</a></body></html>`,
+  });
+  const { errors } = runChecks(dir);
+  assert.deepStrictEqual(errors, []);
+});
+
 test('a healthy fixture passes', () => {
   const { errors } = runChecks(fixture(HEALTHY));
   assert.deepStrictEqual(errors, []);
