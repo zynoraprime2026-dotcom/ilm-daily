@@ -321,6 +321,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .ayah .tr { font-size: 14px; }
   .card { padding-left: 12px; padding-right: 12px; }
 }
+.skip-link{position:absolute;left:-9999px;top:0;z-index:200;background:var(--gold);color:#0f2121;font-weight:700;padding:10px 16px;border-radius:0 0 10px 0}
+.skip-link:focus{left:0;top:0;outline:2px solid #0f2121}
 </style>
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#0b1a18" />
@@ -328,8 +330,17 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   <link rel="apple-touch-icon" href="icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
+<link rel="canonical" href="https://ilm-daily.vercel.app/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Ilm Daily">
+<meta property="og:title" content="Ilm Daily — Prayer, Quran, Hadith, Du'as & Stories">
+<meta property="og:description" content="Daily Islamic companion: prayer times with salat alarm, Quran reader, hadith, du'as and prophetic stories.">
+<meta property="og:url" content="https://ilm-daily.vercel.app/">
+<meta property="og:image" content="https://ilm-daily.vercel.app/icon-512.png">
+<meta name="twitter:card" content="summary">
 </head>
 <body>
+<a class="skip-link" href="#view">Skip to content</a>
 <header class="appbar"><div class="appbar-in">
   <div class="logomark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg></div>
   <div class="brand"><h1>Ilm Daily</h1><div id="net" style="font-size:12px;font-weight:600"></div><div class="tag" id="hijri-line">Prayer &amp; Quran</div></div>
@@ -341,7 +352,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     <button class="btn" id="installBtn" style="display:none">⬇ Install app</button>
     <button class="aplay ib-close" id="installClose" title="Dismiss">✕</button>
   </div>
-  <div id="view"></div>
+  <div id="view" role="main" tabindex="-1"></div>
   <footer>Ilm Daily · built on the Ilm API · ilm-api.vercel.app</footer>
 </div>
 
@@ -534,7 +545,7 @@ async function renderPrayer(view) {
   const selStyle = "background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:13px";
   view.innerHTML = `
     <div class="locbar">
-      <input id="locname" value="${esc(loc.name)}" placeholder="Your location name" />
+      <input id="locname" aria-label="Your location name" value="${esc(loc.name)}" placeholder="Your location name" />
       <button class="btn ghost" id="gps">Use GPS</button>
     </div>
     <div class="card" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
@@ -683,7 +694,7 @@ async function renderSurahList(view) {
         <span style="font-size:13px">${esc((m.text || "").slice(0, 70))}${(m.text || "").length > 70 ? "…" : ""}</span>
         <span class="pill">${esc(m.name)} ${m.surah}:${m.ayah}</span></div>`).join("")}
     </div>` : "";
-  view.innerHTML = `<div class="searchbar"><input id="qsearch" placeholder="Search surah, ayah or translation" /></div>
+  view.innerHTML = `<div class="searchbar"><input id="qsearch" aria-label="Search the Quran by surah, ayah or translation" placeholder="Search surah, ayah or translation" /></div>
     <div class="card" style="margin:10px 12px;padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <button class="btn ghost" id="dlAll">⬇ Save whole Quran offline</button>
       <span id="dlAllStatus" style="font-size:12px;color:var(--muted)">${savedSurahCount()} of 114 surahs have audio saved · Quran text is always offline</span>
@@ -1100,7 +1111,7 @@ async function renderSurah(view, n) {
           <b style="color:var(--gold)">🧠 Memorize</b>
           <span class="rnote" style="margin:0">ayah-by-ayah repetition for hifz</span>
         </div>
-        <div class="memrow">Ayahs <input id="memFrom" type="number" min="1" max="${data.ayahs.length}" value="1"> to <input id="memTo" type="number" min="1" max="${data.ayahs.length}" value="${data.ayahs.length}"></div>
+        <div class="memrow">Ayahs <input id="memFrom" aria-label="First ayah to memorise" type="number" min="1" max="${data.ayahs.length}" value="1"> to <input id="memTo" aria-label="Last ayah to memorise" type="number" min="1" max="${data.ayahs.length}" value="${data.ayahs.length}"></div>
         <div class="memrow">Repeat each ayah
           <select id="memRep"><option value="1">1\u00d7</option><option value="2">2\u00d7</option><option value="3" selected>3\u00d7</option><option value="5">5\u00d7</option><option value="7">7\u00d7</option></select>
           \u00b7 loop range
@@ -1980,7 +1991,7 @@ function renderHadith(view) {
     ? [...new Set(DAILY_HADITH.map(d => d.topic))] : [];
   view.innerHTML = `
     <div class="searchbar">
-      <input id="hsearch" placeholder="Search the hadith library by keyword" />
+      <input id="hsearch" aria-label="Search the hadith library by keyword" placeholder="Search the hadith library by keyword" />
       <button class="btn" id="hgo">Search</button>
       <button class="btn ghost" id="hScholars">Scholars</button>
     </div>
@@ -2262,10 +2273,10 @@ async function renderHadithBook(view, slug, page = 1) {
         <div class="hb-avatar" style="background:${m.color};margin-bottom:8px">${m.init}</div>
         <div style="font-weight:700;color:var(--fg)">${esc(data.collection.name)}</div>
         <div class="hb-ar">${esc(data.collection.name_arabic || m.ar)}</div>
-        <div class="hb-count">${Number(data.total).toLocaleString()} Ahadith</div>
+        <div class="hb-count" role="status" aria-live="polite">${Number(data.total).toLocaleString()} Ahadith</div>
       </div>
       <div class="hjump">
-        Page <input id="hpage" type="number" min="1" max="${data.total_pages}" value="${data.page}"> or hadith no. <input id="hnum" type="number" placeholder="e.g. 2557"> <button class="btn ghost" id="hGo2">Go</button>
+        Page <input id="hpage" aria-label="Hadith page number" type="number" min="1" max="${data.total_pages}" value="${data.page}"> or hadith no. <input id="hnum" aria-label="Hadith number" type="number" placeholder="e.g. 2557"> <button class="btn ghost" id="hGo2">Go</button>
       </div>
       ${pager("top")}
       <div id="hlist">${data.hadiths.map(h => hadithCard(h, false, slug)).join("") || `<div class="empty">No hadiths.</div>`}</div>
@@ -3230,7 +3241,7 @@ function matnCard(m) {
     </div>`;
 }
 async function renderMutoon(view) {
-  view.innerHTML = `<div class="searchbar"><input id="msearch" placeholder="Search a matn, author or field" /></div>
+  view.innerHTML = `<div class="searchbar"><input id="msearch" aria-label="Search a matn, author or field" placeholder="Search a matn, author or field" /></div>
     <div class="card" style="margin:10px 12px;padding:12px 14px">
       <div style="color:var(--gold);font-weight:600;margin-bottom:2px">Mutoon</div>
       <div style="font-size:12px;color:var(--muted)">The primers a student memorises, in the order they are studied.</div>
