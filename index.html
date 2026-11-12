@@ -348,7 +348,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 </div></header>
 <div class="wrap">
   <div id="installBar" class="card">
-    <span id="installMsg">Install Ilm Daily on your phone — works offline, opens full screen.</span>
+    <span id="installMsg" role="status">Install Ilm Daily on your phone — works offline, opens full screen.</span>
     <button class="btn" id="installBtn" style="display:none">⬇ Install app</button>
     <button class="aplay ib-close" id="installClose" title="Dismiss">✕</button>
   </div>
@@ -3020,7 +3020,7 @@ function renderAlarmCard() {
       ${Object.keys(pr).map(k => `<label class="achip ${pr[k] ? "on" : ""}" data-k="${k}" style="cursor:pointer">${pr[k] ? "✓ " : ""}${{fajr:"Fajr",dhuhr:"Dhuhr",asr:"Asr",maghrib:"Maghrib",isha:"Isha",daily:"\u{1F4D6} Daily verse"}[k]}</label>`).join("")}
     </div>
     <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <select id="alarmSound" style="background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:6px 8px">
+      <select id="alarmSound" aria-label="Salat alarm sound" style="background:var(--card2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:6px 8px">
         <option value="adhan" ${alarmCfg.sound === "adhan" ? "selected" : ""}>Adhan (Makkah)</option>
         <option value="chime" ${alarmCfg.sound === "chime" ? "selected" : ""}>Gentle chime</option>
       </select>

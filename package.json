@@ -1,0 +1,16 @@
+{
+  "name": "ilm-daily",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ilm Daily — prayer times, Quran, hadith, du'as and stories. Ships as a static shell with no build step; this manifest exists only for the checks.",
+  "scripts": {
+    "check": "node tools/check-static.js",
+    "test": "node --test tests/*.test.js",
+    "a11y": "node tools/check-a11y.js",
+    "verify": "npm run check && npm test && npm run a11y"
+  },
+  "devDependencies": {
+    "axe-core": "^4.10.2",
+    "jsdom": "^25.0.1"
+  }
+}

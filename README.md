@@ -18,9 +18,21 @@ only shows up in the browser. That is how v11 shipped broken, so the checks belo
 exist to catch it before a deploy.
 
 ```bash
-node tools/check-static.js        # static integrity, exits 1 on error
-node --test tests/*.test.js       # 10 assertions
+npm install                       # jsdom + axe-core, for the tests and the a11y gate
+npm run verify                    # all three checks, in order
 ```
+
+Individually:
+
+```bash
+node tools/check-static.js        # static integrity, exits 1 on error
+node --test tests/*.test.js       # 13 assertions, including the hadith search test
+node tools/check-a11y.js          # axe over all six tabs, fails on serious/critical
+```
+
+The hadith search test and the accessibility gate need `jsdom`. Before `package.json`
+existed they skipped silently in CI (or never installed), so a green run did not mean
+they had passed. CI now installs the dev dependencies and runs all three.
 
 `tools/check-static.js` verifies:
 
