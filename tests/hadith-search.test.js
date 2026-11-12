@@ -42,7 +42,7 @@ const row = (i) => ({
   grade: null, book_number: 1, book_name: 'Revelation'
 });
 
-test('hadith search: real total, honest cards, working Load more', { skip: !JSDOM && 'jsdom not installed' }, async () => {
+test('hadith search: real total, honest cards, working Load more', { skip: !JSDOM && 'jsdom not installed — run npm install' }, async () => {
   const calls = [];
   const w = boot(async (url) => {
     const u = String(url); calls.push(u);

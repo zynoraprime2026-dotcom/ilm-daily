@@ -197,4 +197,11 @@ if (require.main === module) {
     process.exit(1);
   }
   console.log(`OK — no errors, ${warnings.length} warning(s)`);
+// A skipped test looks identical to a passing one in a green run, so say it out loud.
+try {
+  require.resolve('jsdom');
+} catch {
+  console.log('NOT RUN — jsdom is missing, so the hadith search test and the accessibility gate cannot run here. Run `npm install` first.');
+}
+
 }
