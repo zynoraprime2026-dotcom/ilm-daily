@@ -695,10 +695,13 @@ async function renderSurahList(view) {
         <span class="pill">${esc(m.name)} ${m.surah}:${m.ayah}</span></div>`).join("")}
     </div>` : "";
   view.innerHTML = `<div class="searchbar"><input id="qsearch" aria-label="Search the Quran by surah, ayah or translation" placeholder="Search surah, ayah or translation" /></div>
-    <div class="card" style="margin:10px 12px;padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <button class="btn ghost" id="dlAll">⬇ Save whole Quran offline</button>
-      <span id="dlAllStatus" style="font-size:12px;color:var(--muted)">${savedSurahCount()} of 114 surahs have audio saved · Quran text is always offline</span>
-      ${streakHTML}
+    <div class="card" style="margin:10px 12px;padding:12px 14px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="btn" id="dlAll">⬇ Download the full Quran</button>
+        <span style="font-size:12px;color:var(--muted)">114 surahs, one tap</span>
+        ${streakHTML}
+      </div>
+      <div id="dlAllStatus" style="font-size:12px;color:var(--muted);margin-top:8px">${fullQuranStatusLine()}</div>
     </div>
     ${lastHTML}${marksHTML}
     <div id="qlist"><div class="loading">Loading surahs…</div></div>`;
@@ -756,6 +759,19 @@ function savedSurahCount() {
   return Object.keys(off).filter(k => k.startsWith(curReciter() + "_")).length;
 }
 let quranDl = { running: false, cancel: false };
+function fullQuranStatusLine() {
+  const audio = savedSurahCount();
+  const tafsir = savedSurahsFor("tafsir");
+  const words = savedSurahsFor("words");
+  const done = audio >= 114 && tafsir >= 114;
+  if (done) return "✓ The full Quran is on this device — reading, recitation and tafsir all work offline";
+  const bits = [`Quran text is always offline`];
+  bits.push(`recitation ${audio}/114`);
+  if (tafsir) bits.push(`tafsir ${tafsir}/114`);
+  if (words) bits.push(`word packs ${words}/114`);
+  return bits.join(" · ") + " — tap to finish the rest";
+}
+
 async function storagePreflight(needMB) {
   // ask the browser to keep our cache (prevents auto-eviction) and check free space
   try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {}
@@ -791,66 +807,135 @@ function appDialog(html, buttons) {
     document.body.appendChild(ov);
   });
 }
+// ---- Download the full Quran: one screen, four layers, resumable ----
+// The old button fetched recitation audio for all 114 surahs and nothing else, and it
+// lived behind a ghost button nobody noticed. This opens a single sheet where the
+// layers are chosen once, the cost is stated before anything is fetched, and progress
+// is per surah so stopping and resuming later is normal rather than a failure.
+const wholeDl = { cancel: false };
 async function saveWholeQuranOffline(btn) {
+  await ensureQuran().catch(() => {});
+  const surahs = surahsCache || [];
   const status = document.getElementById("dlAllStatus");
-  const set = t => { const el = document.getElementById("dlAllStatus"); if (el) el.textContent = t; };
-  if (quranDl.running) { quranDl.cancel = true; btn.textContent = "Cancelling…"; return; }
-  if (!("caches" in window)) { set("This browser can't save offline audio — try Chrome"); return; }
-  const reciterName = curRecInfo().name;
-  const remaining = 114 - savedSurahCount();
-  if (remaining > 0) {
-    const needMB = Math.max(1, Math.round(remaining * 7));
-    const pre = await storagePreflight(needMB);
+  const setStatus = (t) => { const el = document.getElementById("dlAllStatus"); if (el) el.textContent = t; };
+  if (!surahs.length) { setStatus("Open a surah once so the Quran can load, then try again."); return; }
+  if (!("caches" in window)) { setStatus("This browser cannot save offline data — try Chrome or Safari."); return; }
+  if (wholeDl.cancel === false && btn.dataset.running === "1") { wholeDl.cancel = true; btn.textContent = "Stopping…"; return; }
+
+  const existing = document.getElementById("quranDlSheet");
+  if (existing) existing.remove();
+  const state = {};
+  OFFLINE_LAYERS.forEach(l => { state[l.id] = savedSurahsFor(l.id) >= 114; });
+  const remainingMB = (layers) => layers.reduce((t, id) => t + offlineEstimate([id], QURAN_AYAHS) * (1 - Math.min(1, savedSurahsFor(id) / 114)), 0);
+
+  const ov = document.createElement("div");
+  ov.id = "quranDlSheet";
+  ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:9999;display:flex;align-items:flex-end;justify-content:center";
+  const box = document.createElement("div");
+  box.style.cssText = "background:var(--card,#122623);color:var(--text,#f2ecdb);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:20px 18px 22px;box-shadow:0 -10px 40px rgba(0,0,0,.55)";
+  const row = (l) => {
+    const saved = savedSurahsFor(l.id);
+    const each = offlineEstimate([l.id], QURAN_AYAHS);
+    return `
+    <label style="display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.07);cursor:pointer">
+      <input type="checkbox" data-layer="${l.id}" ${state[l.id] ? "checked disabled" : l.id === "wordAudio" ? "" : "checked"}
+        style="margin-top:3px;width:17px;height:17px;accent-color:#c9a227;flex:0 0 auto">
+      <span style="flex:1">
+        <span style="display:block;font-size:14px;font-weight:600">${l.label}${saved >= 114 ? ' <span style="color:#8fbf8f;font-weight:500">· complete</span>' : saved ? ` <span style="color:var(--muted);font-weight:500">· ${saved}/114</span>` : ""}</span>
+        <span style="display:block;font-size:12px;color:var(--muted);margin-top:2px">${l.note}${l.id === "wordAudio" ? " — several GB for all 114 surahs, so it starts unchecked" : ""}</span>
+      </span>
+      <span style="font-size:12px;color:var(--muted);white-space:nowrap">${each < 0.1 ? "<0.1" : each.toFixed(each < 10 ? 1 : 0)} MB</span>
+    </label>`;
+  };
+
+  box.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <div>
+        <div style="font-size:17px;font-weight:700">Download the full Quran</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:3px">114 surahs · ${QURAN_AYAHS} ayahs · already-saved surahs are skipped</div>
+      </div>
+      <button id="qdClose" style="background:none;border:0;color:var(--muted);font-size:22px;line-height:1;cursor:pointer">×</button>
+    </div>
+    <div style="margin-top:6px;font-size:12px;color:var(--muted)">The Quran text itself already ships with the app. These layers are the extras.</div>
+    <div style="margin-top:12px">${OFFLINE_LAYERS.map(row).join("")}</div>
+    <div id="qdTotal" style="margin-top:14px;font-size:13px;color:var(--muted)"></div>
+    <div id="qdBarWrap" style="display:none;margin-top:14px">
+      <div style="height:7px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden">
+        <div id="qdBar" style="height:100%;width:0%;background:linear-gradient(90deg,#c9a227,#e8cd6a);transition:width .25s"></div>
+      </div>
+      <div id="qdLabel" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px">
+      <button class="btn" id="qdGo" style="flex:1">Download</button>
+      <button class="btn ghost" id="qdCancel">Cancel</button>
+    </div>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:12px;text-align:center">Saved on this device only. Keep the app open while it runs; staying on this screen is not required.</div>`;
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+  const close = () => { ov.remove(); setStatus(fullQuranStatusLine()); };
+  ov.addEventListener("click", (e) => { if (e.target === ov && !wholeDl.cancel) close(); });
+  box.querySelector("#qdClose").onclick = () => { if (!btn.dataset.running || btn.dataset.running !== "1") close(); };
+
+  const boxes = [...box.querySelectorAll("input[data-layer]")];
+  const chosen = () => boxes.filter(b => b.checked && !b.disabled).map(b => b.dataset.layer);
+  const refresh = () => {
+    const mb = remainingMB(chosen());
+    const el = box.querySelector("#qdTotal");
+    el.textContent = mb > 0.05 ? `About ${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB still to download` : "Nothing left to download";
+    box.querySelector("#qdGo").disabled = !chosen().length;
+  };
+  boxes.forEach(b => b.addEventListener("change", refresh));
+  refresh();
+
+  box.querySelector("#qdCancel").onclick = () => {
+    if (btn.dataset.running === "1") { wholeDl.cancel = true; box.querySelector("#qdCancel").textContent = "Stopping…"; }
+    else close();
+  };
+
+  box.querySelector("#qdGo").onclick = async () => {
+    const layers = chosen();
+    if (!layers.length) return close();
+    const mb = remainingMB(layers);
+    const pre = await storagePreflight(Math.max(1, Math.round(mb)));
     if (!pre.ok) {
-      await appDialog(`Not enough free storage in your browser.<br>Offline Quran needs about <b>${needMB} MB</b> free, but only <b>${pre.freeMB} MB</b> is available.<br><br>Tip: save individual surahs instead (open a surah → Save offline), or free up phone storage.`, [["OK", false, true]]);
+      await appDialog(`Not enough free space in this browser for the rest of the Quran.<br><br>Still needed: about <b>${Math.round(mb)} MB</b>. Available: <b>${pre.freeMB} MB</b>.<br><br>Save fewer layers, or free up phone storage.`, [["OK", false, true]]);
       return;
     }
-    const go = await appDialog(
-      `Download the whole Quran (<b>${reciterName}</b>) for offline use?<br><br>About <b>${needMB} MB</b> of audio will be downloaded once — keep the app open until it finishes. Already-saved surahs are skipped. You can cancel anytime.`,
-      [["Download", true, true], ["Cancel", false, false]]);
-    if (!go) return;
-  }
-  quranDl = { running: true, cancel: false };
-  btn.textContent = "■ Cancel download";
-  const cache = await caches.open(AUDIO_CACHE);
-  let done = 0, failed = 0;
-  try {
-    for (const s of surahsCache) {
-      if (quranDl.cancel) break;
-      const key = offlineKey(s.number);
-      const off = offlineMap();
-      if (off[key]) { done++; continue; }
-      const urls = surahAudioUrls(s.number, s.ayah_count);
-      let ok = true;
-      for (const u of urls) {
-        if (quranDl.cancel) break;
-        if (!(await cache.match(u))) {
-          try {
-            const r = await fetch(u);
-            if (r.ok || r.type === "opaque") await cache.put(u, r);
-            else { ok = false; set(`Problem: server returned ${r.status} for this surah`); }
-          } catch (e) { ok = false; set(`Problem: ${esc(String(e.message || e).slice(0, 120))}`); }
-        }
-      }
-      if (quranDl.cancel) break;
-      if (ok) {
-        const off = offlineMap();
-        off[key] = true;
-        localStorage.setItem("ilm_offline", JSON.stringify(off));
-      } else failed++;
-      done++;
-      set(`${done}/114 surahs saved${failed ? " · " + failed + " failed (will retry next run)" : ""} — tap surahs meanwhile, download continues`);
+    wholeDl.cancel = false;
+    btn.dataset.running = "1";
+    btn.textContent = "■ Stop download";
+    box.querySelector("#qdGo").disabled = true;
+    box.querySelector("#qdCancel").textContent = "Stop";
+    box.querySelector("#qdBarWrap").style.display = "block";
+    boxes.forEach(b => { b.disabled = true; });
+    const bar = box.querySelector("#qdBar");
+    const label = box.querySelector("#qdLabel");
+    const total = surahs.length;
+    let stopped = false;
+    for (let i = 0; i < total; i++) {
+      if (wholeDl.cancel) { stopped = true; break; }
+      const s = surahs[i];
+      const ui = {
+        pct: (f) => { bar.style.width = Math.max(0, Math.min(100, ((i + f) / total) * 100)) + "%"; },
+        step: (t) => { label.textContent = `Surah ${i + 1}/${total} · ${s.name_transliteration || s.name_english} · ${t}`; },
+      };
+      await runOfflineDownload(s.number, s.ayah_count, layers, ui);
     }
-  } finally {
-    const cancelled = quranDl.cancel;
-    quranDl = { running: false, cancel: false };
-    btn.textContent = "⬇ Save whole Quran offline";
-    set(cancelled
-      ? `Paused at ${savedSurahCount()}/114 — tap again to resume`
-      : savedSurahCount() === 114
-        ? "✓ Whole Quran saved offline — works without internet"
-        : `${savedSurahCount()}/114 saved — tap again to retry the failed ones`);
-  }
+    delete btn.dataset.running;
+    btn.textContent = "⬇ Download the full Quran";
+    box.querySelector("#qdCancel").textContent = "Close";
+    box.querySelector("#qdCancel").onclick = close;
+    const audio = savedSurahCount();
+    if (stopped) {
+      bar.style.width = "0%";
+      label.textContent = `Stopped at surah ${audio > 0 ? "" : ""}${audio}/114 saved — everything finished is kept, tap Download again to continue`;
+    } else {
+      bar.style.width = "100%";
+      label.textContent = `✓ Finished — recitation ${audio}/114, tafsir ${savedSurahsFor("tafsir")}/114, word packs ${savedSurahsFor("words")}/114`;
+    }
+    setStatus(fullQuranStatusLine());
+    try { renderStorageCard(); } catch (e) {}
+  };
 }
 
 // ---- Offline download sheet -------------------------------------------------
@@ -864,6 +949,22 @@ const OFFLINE_LAYERS = [
   { id: "tafsir", label: "Tafsir", note: "Ibn Kathir commentary per ayah" },
 ];
 const MB = 1048576;
+const QURAN_AYAHS = 6236;
+
+/** Bytes are ballparked per ayah per layer, from what the caches actually hold. */
+const OFFLINE_LAYER_MB = { audio: 0.13, words: 0.006, wordAudio: 12 * 45000 / MB, tafsir: 0.004 };
+function offlineEstimate(layers, ayahs) {
+  return layers.reduce((total, id) => total + (OFFLINE_LAYER_MB[id] || 0) * ayahs, 0);
+}
+function savedSurahsFor(layer) {
+  try {
+    if (layer === "audio") return savedSurahCount();
+    if (layer === "words") return wordsExtraSet().size;
+    if (layer === "wordAudio") return wordsAudioSet().size;
+    if (layer === "tafsir") return extraTafsirSet().size;
+  } catch (e) {}
+  return 0;
+}
 
 function offlineSheet(n, ayahCount, meta) {
   const existing = document.getElementById("olSheet");
@@ -871,15 +972,11 @@ function offlineSheet(n, ayahCount, meta) {
   const saved = isSavedOffline(n);
   const hasWords = (() => { try { return wordsExtraSet().has(Number(n)); } catch (e) { return false; } })();
   const hasWordAudio = (() => { try { return wordsAudioSet().has(Number(n)); } catch (e) { return false; } })();
-  const hasTafsir = (() => { try { return tafsirSavedSet().has(Number(n)); } catch (e) { return false; } })();
+  const hasTafsir = (() => { try { return extraTafsirSet().has(Number(n)); } catch (e) { return false; } })();
   const state = { audio: saved, words: hasWords, wordAudio: hasWordAudio, tafsir: hasTafsir };
 
-  const est = {
-    audio: ayahCount * 0.13,
-    words: Math.max(0.05, ayahCount * 0.006),
-    wordAudio: ayahCount * 12 * 45000 / MB,
-    tafsir: ayahCount * 0.004,
-  };
+  const est = {};
+  OFFLINE_LAYERS.forEach(l => { est[l.id] = offlineEstimate([l.id], ayahCount); });
 
   const ov = document.createElement("div");
   ov.id = "olSheet";
@@ -940,6 +1037,7 @@ function offlineSheet(n, ayahCount, meta) {
   box.querySelector("#olGo").onclick = async () => {
     const layers = boxes.filter(b => b.checked && !b.disabled).map(b => b.dataset.layer);
     if (!layers.length) return close();
+    dlRun.cancel = false;
     box.querySelector("#olGo").disabled = true;
     box.querySelector("#olCancel").textContent = "Stop";
     box.querySelector("#olBarWrap").style.display = "block";
@@ -962,7 +1060,8 @@ function offlineSheet(n, ayahCount, meta) {
 const dlRun = { cancel: false };
 
 async function runOfflineDownload(n, ayahCount, layers, ui) {
-  dlRun.cancel = false;
+  // dlRun.cancel is owned by the caller: a whole-Quran run must be able to stop a
+  // per-surah pass without that pass resetting the flag it was given.
   const total = layers.length;
   let idx = 0;
   const bump = (frac, text) => ui.pct(((idx + frac) / total) * 100) || (text && ui.step(text));

@@ -10,6 +10,14 @@ Quran tab opens rather than on every visit, so someone checking prayer times doe
 pay for it. The service worker precaches it, so it is there offline after that first
 open. `ensureQuran()` in `index.html` owns that switch.
 
+**Downloading the whole Quran.** The Quran tab's `⬇ Download the full Quran` opens one
+sheet with four layers (recitation audio, word-by-word text, word audio, tafsir). It
+states the remaining size before fetching, skips surahs that are already saved, runs
+every surah through the same `runOfflineDownload()` the per-surah sheet uses, and can be
+stopped and resumed. Word audio is several gigabytes for all 114 surahs, so it starts
+unchecked there. `tests/full-quran-download.test.js` drives the sheet in a DOM with a
+stubbed Cache Storage.
+
 ## Checks and tests
 
 The app ships as one HTML shell plus three global scripts, which all share a single
