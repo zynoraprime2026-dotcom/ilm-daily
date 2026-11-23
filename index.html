@@ -447,10 +447,16 @@ async function saveHadithText(slug, onProgress) {
 // so no API key ever ships in this public JavaScript.
 const API = "https://ilm-api.vercel.app/web";
 async function api(path, needsKey = true) {
-  const res = await fetch(API + path);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Request failed");
-  return data;
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 12000) : null;
+  try {
+    const res = await fetch(API + path, controller ? { signal: controller.signal } : {});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Request failed");
+    return data;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 let loc = JSON.parse(localStorage.getItem("ilm_loc") || "null") || { lat: 5.30, lng: -2.00, name: "Tarkwa, Ghana" };
 // The full Quran ships inside the app (quran.js) but it is 2.2 MB, so it is fetched
@@ -821,6 +827,7 @@ async function saveWholeQuranOffline(btn) {
   if (!surahs.length) { setStatus("Open a surah once so the Quran can load, then try again."); return; }
   if (!("caches" in window)) { setStatus("This browser cannot save offline data — try Chrome or Safari."); return; }
   if (wholeDl.cancel === false && btn.dataset.running === "1") { wholeDl.cancel = true; btn.textContent = "Stopping…"; return; }
+  await reconcileWordAudioMarkers();
 
   const existing = document.getElementById("quranDlSheet");
   if (existing) existing.remove();
@@ -919,7 +926,7 @@ async function saveWholeQuranOffline(btn) {
         pct: (f) => { bar.style.width = Math.max(0, Math.min(100, ((i + f) / total) * 100)) + "%"; },
         step: (t) => { label.textContent = `Surah ${i + 1}/${total} · ${s.name_transliteration || s.name_english} · ${t}`; },
       };
-      await runOfflineDownload(s.number, s.ayah_count, layers, ui);
+      await runOfflineDownload(s.number, s.ayah_count, layers, ui, () => wholeDl.cancel);
     }
     delete btn.dataset.running;
     btn.textContent = "⬇ Download the full Quran";
@@ -1059,13 +1066,13 @@ function offlineSheet(n, ayahCount, meta) {
 
 const dlRun = { cancel: false };
 
-async function runOfflineDownload(n, ayahCount, layers, ui) {
-  // dlRun.cancel is owned by the caller: a whole-Quran run must be able to stop a
-  // per-surah pass without that pass resetting the flag it was given.
+async function runOfflineDownload(n, ayahCount, layers, ui, shouldCancel = () => dlRun.cancel) {
+  // Each caller owns its cancellation flag so stopping one download cannot leave
+  // another flow stuck in a cancelled state.
   const total = layers.length;
   let idx = 0;
   const bump = (frac, text) => ui.pct(((idx + frac) / total) * 100) || (text && ui.step(text));
-  const bail = () => dlRun.cancel;
+  const bail = () => shouldCancel();
 
   if (layers.includes("audio")) {
     ui.step("Recitation audio…");
@@ -1126,7 +1133,10 @@ async function runOfflineDownload(n, ayahCount, layers, ui) {
           }
         };
         await Promise.all(Array.from({ length: 6 }, worker));
-        if (ok) { const st = wordsAudioSet(); st.add(Number(n)); localStorage.setItem("ilm_words_audio", JSON.stringify([...st])); }
+        if (ok === files.length && !bail()) {
+          const st = wordsAudioSet(); st.add(Number(n));
+          localStorage.setItem("ilm_words_audio", JSON.stringify([...st]));
+        }
       }
     } catch (e) {}
     idx++;
@@ -1244,7 +1254,6 @@ async function renderSurah(view, n) {
       localStorage.setItem("ilm_reciter", e.target.value);
       stopQuranAudio();
       applyReciterUI(n);
-    applyQuranLanguage(n);
       applyQuranLanguage(n);
     });
     $("#dlSurah").addEventListener("click", () => {
@@ -1369,7 +1378,7 @@ async function toggleWords(el, surah, ayah) {
 }
 /* Shown in the storage card so a support question can start from a version
    number instead of "the latest one". Bump with the service worker. */
-const APP_VERSION = "32";
+const APP_VERSION = "33";
 /* Tafsir for the surahs people actually open ships with the app, so the
    commentary reads with no network at all. Anything not bundled (or an ayah
    the commentators skip) still falls through to ilm-api as before. */
@@ -1565,6 +1574,20 @@ const WORDS_AUDIO_BASE = `${API}/v1/media/word-audio/`;
 const WORD_AUDIO_BYTES = 45000; // measured average, used only for the estimate
 const wordsAudioSet = () => new Set(JSON.parse(localStorage.getItem("ilm_words_audio") || "[]"));
 const wordClipUrl = file => WORDS_AUDIO_BASE + file;
+async function reconcileWordAudioMarkers() {
+  const saved = wordsAudioSet();
+  if (!saved.size || !("caches" in window)) return;
+  try {
+    const cache = await caches.open(WORDS_AUDIO_CACHE);
+    const cached = new Set((await cache.keys()).map(request => request.url));
+    await Promise.all([...saved].map(async n => {
+      const pack = await cachedWordsPack(n);
+      const files = [...new Set(Object.values(pack || {}).flat().map(w => w && w.a).filter(Boolean))];
+      if (!files.length || !files.every(file => cached.has(new URL(wordClipUrl(file), location.href).href))) saved.delete(n);
+    }));
+    if (saved.size !== wordsAudioSet().size) localStorage.setItem("ilm_words_audio", JSON.stringify([...saved]));
+  } catch (e) {}
+}
 let WORD_AUDIO_EL = null;
 let WORD_AUDIO_KEY = null;
 async function playWordClip(btn, file) {
@@ -1591,14 +1614,21 @@ async function playWordClip(btn, file) {
 }
 async function wordAudioSaved(surah) {
   const n = Number(surah);
-  if (!wordsAudioSet().has(n)) return false;
+  const saved = wordsAudioSet();
+  if (!saved.has(n)) return false;
   try {
     const pack = await cachedWordsPack(n);
     if (!pack) return false;
-    const first = Object.values(pack).flat().find(w => w && w.a);
-    if (!first) return false;
+    const files = [...new Set(Object.values(pack).flat().map(w => w && w.a).filter(Boolean))];
+    if (!files.length) return false;
     const c = await caches.open(WORDS_AUDIO_CACHE);
-    return !!(await c.match(wordClipUrl(first.a)));
+    const cached = new Set((await c.keys()).map(request => request.url));
+    const complete = files.every(file => cached.has(new URL(wordClipUrl(file), location.href).href));
+    if (!complete) {
+      saved.delete(n);
+      localStorage.setItem("ilm_words_audio", JSON.stringify([...saved]));
+    }
+    return complete;
   } catch (e) { return false; }
 }
 async function removeWordAudio(surah, btn) {
@@ -1654,8 +1684,14 @@ async function saveWordAudio(surah, btn) {
     };
     await Promise.all(Array.from({ length: 6 }, worker));
     const set = wordsAudioSet();
-    if (ok) { set.add(n); localStorage.setItem("ilm_words_audio", JSON.stringify([...set])); }
-    if (btn) { btn.textContent = ok ? `✓ Word audio (${ok}/${files.length})` : "Audio download failed — tap to retry"; btn.disabled = false; }
+    const complete = ok === files.length;
+    if (complete) { set.add(n); localStorage.setItem("ilm_words_audio", JSON.stringify([...set])); }
+    else { set.delete(n); localStorage.setItem("ilm_words_audio", JSON.stringify([...set])); }
+    if (btn) {
+      btn.textContent = complete ? `✓ Word audio (${ok}/${files.length})`
+        : ok ? `Partial (${ok}/${files.length}) — tap to resume` : "Audio download failed — tap to retry";
+      btn.disabled = false;
+    }
   } catch (e) {
     if (btn) { btn.textContent = "Audio download failed — tap to retry"; btn.disabled = false; }
   }
