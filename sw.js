@@ -1,5 +1,5 @@
 // Ilm Daily service worker — offline shell + offline Quran audio + salat alarm support.
-const CACHE = 'ilm-daily-v38';
+const CACHE = 'ilm-daily-v39';
 const TAFSIR_CACHE = 'ilm-tafsir';
 const AUDIO_CACHE = 'ilm-quran-audio';
 const SHELL = ['./', './index.html', './stories.js', './quran.js', './daily-hadith.js', './praytimes.js', './duas.json', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
@@ -34,7 +34,7 @@ self.addEventListener('push', e => {
     : isTest ? 'Ilm Daily — test alarm' : 'Ilm Daily — it is time for ' + prayer.charAt(0).toUpperCase() + prayer.slice(1);
   e.waitUntil(self.registration.showNotification(title, {
     body: isDaily ? (data.body || 'Open for today\u2019s verse, hadith and prayer times.')
-      : isTest ? 'Phone alarm works! You will be notified at every salah.' : 'Tap to listen to the adhan — حي على الصلاة',
+      : isTest ? 'Background prayer alert test — notifications are enabled on this device.' : 'Tap to listen to the adhan — حي على الصلاة',
     icon: './icon-192.png',
     badge: './icon-192.png',
     vibrate: isDaily ? [200, 100, 200] : [400, 200, 400, 200, 600],

@@ -1378,7 +1378,7 @@ async function toggleWords(el, surah, ayah) {
 }
 /* Shown in the storage card so a support question can start from a version
    number instead of "the latest one". Bump with the service worker. */
-const APP_VERSION = "33";
+const APP_VERSION = "34";
 /* Tafsir for the surahs people actually open ships with the app, so the
    commentary reads with no network at all. Anything not bundled (or an ayah
    the commentators skip) still falls through to ilm-api as before. */
@@ -3150,7 +3150,7 @@ function renderAlarmCard() {
         <span>${alarmCfg.on ? "ON" : "OFF"}</span>
       </label>
     </div>
-    <div style="margin-top:10px;font-size:13px;color:var(--muted)">Ring the adhan at each prayer time. Turn on *Phone alarm* to also get a notification at every salah when the app is closed — tap it and the adhan plays.</div>
+    <div style="margin-top:10px;font-size:13px;color:var(--muted)">With the app open, ring the adhan at each prayer time. For alerts while the app is closed, enable background alerts below; click a desktop or phone notification to play the adhan.</div>
     <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
       ${Object.keys(pr).map(k => `<label class="achip ${pr[k] ? "on" : ""}" data-k="${k}" style="cursor:pointer">${pr[k] ? "✓ " : ""}${{fajr:"Fajr",dhuhr:"Dhuhr",asr:"Asr",maghrib:"Maghrib",isha:"Isha",daily:"\u{1F4D6} Daily verse"}[k]}</label>`).join("")}
     </div>
@@ -3165,9 +3165,9 @@ function renderAlarmCard() {
     <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" id="alarmPush" ${alarmCfg.push ? "checked" : ""} style="width:18px;height:18px;accent-color:var(--gold)">
-        <span>📱 Phone alarm (works with app closed)</span>
+        <span>🔔 Background alerts (phone or laptop)</span>
       </label>
-      <span id="pushStatus" style="font-size:12px;color:var(--muted)">${alarmCfg.push ? "✓ ringing on this phone at every salah" : ""}</span>
+      <span id="pushStatus" style="font-size:12px;color:var(--muted)">${alarmCfg.push ? "✓ prayer alerts enabled on this device" : ""}</span>
     </div>`;
   $("#alarmOn").addEventListener("change", e => {
     alarmCfg.on = e.target.checked;
@@ -3214,7 +3214,7 @@ async function enablePhoneAlarm() {
   const st = document.getElementById("pushStatus");
   const set = t => { const el = document.getElementById("pushStatus"); if (el && st) el.textContent = t; };
   try {
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) throw new Error("This browser can't do phone alarms");
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) throw new Error("This browser can't do background prayer alerts");
     if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
       const p = await Notification.requestPermission();
       if (p !== "granted") throw new Error("Notifications blocked");
@@ -3234,10 +3234,10 @@ async function enablePhoneAlarm() {
       prayers: alarmCfg.prayers
     });
     localStorage.setItem("ilm_push_sub", sub.endpoint);
-    set("✓ ringing on this phone at every salah");
+    set("✓ prayer alerts enabled on this device");
   } catch (e) {
     alarmCfg.push = false; saveAlarm();
-    set(e.message === "Notifications blocked" ? "Notifications blocked — allow them in browser settings" : "Phone alarm unavailable: " + e.message);
+    set(e.message === "Notifications blocked" ? "Notifications blocked — allow them in browser settings" : "Background alerts unavailable: " + e.message);
     renderAlarmCard();
   }
 }
@@ -3388,13 +3388,15 @@ async function renderMutoon(view) {
     <div id="mlist"><div class="loading">Loading the catalogue…</div></div>`;
   let level = "all";
   const draw = (filter = "") => {
+    const list = view.querySelector("#mlist");
+    if (!list) return;
     const f = filter.trim().toLowerCase();
     const rows = (mutoonCache || []).filter(m =>
       (level === "all" || m.level === level) &&
       (!f || [m.title_english, m.title_arabic, m.author, m.field].some(x => String(x || "").toLowerCase().includes(f))));
-    $("#mlist").innerHTML = rows.length ? rows.map(matnCard).join("")
+    list.innerHTML = rows.length ? rows.map(matnCard).join("")
       : `<div class="empty">No matn matches that.</div>`;
-    $("#mlist").querySelectorAll(".item").forEach(el =>
+    list.querySelectorAll(".item").forEach(el =>
       el.addEventListener("click", () => renderMatn(view, el.dataset.slug)));
   };
   try {
@@ -3403,16 +3405,21 @@ async function renderMutoon(view) {
       mutoonCache = d.mutoon || [];
       mutoonPaths = d.paths || {};
     }
+    if (!view.querySelector("#mlist")) return;
+    const ready = mutoonCache.filter(m => m.ingested).length;
+    const intro = view.querySelector("#mlevels")?.parentElement?.querySelector("div[style*='font-size:12px']");
+    if (intro) intro.textContent = `The primers a student memorises, in study order. Text is loaded for ${ready} of ${mutoonCache.length} titles; other cards show available audio or PDFs.`;
     draw();
     paintPaths(view);
-    $("#msearch").addEventListener("input", e => draw(e.target.value));
-    $("#mlevels").querySelectorAll(".mlevel").forEach(b => b.addEventListener("click", () => {
+    view.querySelector("#msearch").addEventListener("input", e => draw(e.target.value));
+    view.querySelector("#mlevels").querySelectorAll(".mlevel").forEach(b => b.addEventListener("click", () => {
       level = b.dataset.l;
-      $("#mlevels").querySelectorAll(".mlevel").forEach(x => x.classList.toggle("active", x === b));
-      draw($("#msearch").value);
+      view.querySelector("#mlevels").querySelectorAll(".mlevel").forEach(x => x.classList.toggle("active", x === b));
+      draw(view.querySelector("#msearch").value);
     }));
   } catch (e) {
-    $("#mlist").innerHTML = `<div class="empty">Could not load mutoon: ${esc(e.message)}</div>`;
+    const list = view.querySelector("#mlist");
+    if (list) list.innerHTML = `<div class="empty">Could not load mutoon: ${esc(e.message)}</div>`;
   }
 }
 // The study order is the point of the collection: handing someone twelve texts
@@ -3440,9 +3447,9 @@ function paintPaths(view) {
 
 async function renderMatn(view, slug) {
   view.innerHTML = `<button class="back" id="back">\u2190 All mutoon</button><div id="mbody"><div class="loading">Loading…</div></div>`;
-  $("#back").addEventListener("click", () => renderMutoon(view));
+  view.querySelector("#back").addEventListener("click", () => renderMutoon(view));
   const m = (mutoonCache || []).find(x => x.slug === slug);
-  if (!m) { $("#mbody").innerHTML = `<div class="empty">Unknown matn.</div>`; return; }
+  if (!m) { view.querySelector("#mbody").innerHTML = `<div class="empty">Unknown matn.</div>`; return; }
   // Playback stays inside the app: no links out, no new tabs. The recording
   // streams through the player with the study controls a memoriser actually
   // needs, speed and a repeat loop, because listening once is not memorising.
@@ -3475,7 +3482,7 @@ async function renderMatn(view, slug) {
       ${pdfBtn}
     </div>
     <div id="mlines"><div class="loading">Loading text…</div></div>`;
-  const a = document.getElementById("maudio");
+  const a = view.querySelector("#maudio");
   if (a) {
     view.querySelectorAll(".mrate").forEach(b => b.addEventListener("click", () => {
       a.playbackRate = Number(b.dataset.r);
@@ -3495,9 +3502,16 @@ async function renderMatn(view, slug) {
       if (a.currentTime > 0) localStorage.setItem(key, String(Math.floor(a.currentTime)));
     });
   }
+  const lineBox = view.querySelector("#mlines");
+  if (!m.ingested) {
+    lineBox.innerHTML = `<div class="empty" style="margin:10px 12px">The text for this matn has not been loaded yet. Any available audio, PDF, and study notes are shown above.</div>`;
+    return;
+  }
   try {
     const d = await api(`/v1/mutoon/${encodeURIComponent(slug)}/lines`);
-    $("#mlines").innerHTML = `<p class="note" style="text-align:left">${d.total_lines} lines${d.source ? " \u00b7 " + esc(d.source) : ""}</p>` +
+    if (!view.contains(lineBox)) return;
+    if (!Array.isArray(d.lines)) throw new Error("The text response is incomplete. Please try again later.");
+    lineBox.innerHTML = `<p class="note" style="text-align:left">${d.total_lines} lines${d.source ? " \u00b7 " + esc(d.source) : ""}</p>` +
       d.lines.map(l => `
         <div class="ayah">
           <span class="num">${l.n}</span>
@@ -3508,7 +3522,7 @@ async function renderMatn(view, slug) {
   } catch (e) {
     // 409 means catalogued but not yet ingested: say that plainly instead of an error.
     const msg = /ingested/i.test(e.message) ? "Text for this matn is not loaded yet. Audio and study notes are available above." : e.message;
-    $("#mlines").innerHTML = `<div class="empty" style="margin:10px 12px">${esc(msg)}</div>`;
+    if (view.contains(lineBox)) lineBox.innerHTML = `<div class="empty" style="margin:10px 12px">${esc(msg)}</div>`;
   }
 }
 
