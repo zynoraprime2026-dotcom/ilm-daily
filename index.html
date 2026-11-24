@@ -1205,7 +1205,9 @@ async function renderSurah(view, n) {
             <option value="minshawi"${localStorage.getItem("ilm_reciter") === "minshawi" ? " selected" : ""}>Al-Minshawi</option>
             <option value="islam_sobhi"${localStorage.getItem("ilm_reciter") === "islam_sobhi" ? " selected" : ""}>Islam Sobhi</option>
           </select>
-          <button class="btn" id="playSurah">▶ Play surah</button>
+          <button class="btn" id="playSurah">▶ Play Quran</button>
+          <label class="rnote" for="qRepeat">Playback</label>
+          <select id="qRepeat" aria-label="Quran playback mode"><option value="quran-once" selected>Continue through Quran</option><option value="surah">Repeat this surah</option><option value="quran">Repeat full Quran</option></select>
           <select id="qlang" title="Quran translation language" style="max-width:210px"></select>
           <button class="btn" id="dlSheet">⬇ Download for offline</button>
           <div id="offlineAdvanced" style="display:none">
@@ -1334,7 +1336,7 @@ async function renderSurah(view, n) {
     $("#playSurah").addEventListener("click", () => {
       const btn = $("#playSurah");
       if (qAudio) { stopQuranAudio(); return; }
-      playQuranFrom(n, 1, meta ? meta.ayah_count : data.ayahs.length, meta ? meta.name_transliteration : "Surah " + n);
+      playQuranFrom(n, 1, meta ? meta.ayah_count : data.ayahs.length, meta ? meta.name_transliteration : "Surah " + n, $("#qRepeat").value);
     });
     view.querySelectorAll(".aplay").forEach(b => b.addEventListener("click", e => {
       e.stopPropagation();
@@ -1382,7 +1384,7 @@ async function toggleWords(el, surah, ayah) {
 }
 /* Shown in the storage card so a support question can start from a version
    number instead of "the latest one". Bump with the service worker. */
-const APP_VERSION = "35";
+const APP_VERSION = "37";
 /* Tafsir for the surahs people actually open ships with the app, so the
    commentary reads with no network at all. Anything not bundled (or an ayah
    the commentators skip) still falls through to ilm-api as before. */
@@ -2945,34 +2947,49 @@ function wireMediaSession() {
 }
 
 function stopQuranAudio() {
-  memState = null; // stopping anything also ends a memorize session
+  memState = null;
+  qPlayState = null; // stopping anything also ends a memorize session
   if (qAudio) { qAudio.pause(); delete qAudio; qAudio = null; }
   document.querySelectorAll(".ayah.playing").forEach(el => el.classList.remove("playing"));
-  const b = document.getElementById("playSurah"); if (b) b.textContent = "▶ Play surah";
+  const b = document.getElementById("playSurah"); if (b) b.textContent = "▶ Play Quran";
   const ms = document.getElementById("memStart"); if (ms) { ms.disabled = false; ms.textContent = "▶ Start"; }
   const st = document.getElementById("memStatus"); if (st) st.textContent = "";
   if ("mediaSession" in navigator) { try { navigator.mediaSession.playbackState = "none"; } catch (e) {} }
 }
-function playQuranFrom(surah, startAyah, totalAyahs, surahName) {
+let qPlayState = null;
+function playQuranFrom(surah, startAyah, totalAyahs, surahName, repeatMode = "surah") {
   stopQuranAudio();
-  const full = !!curRecInfo().fullSurah;
-  const play = (aNo) => {
-    if (aNo > totalAyahs || !document.getElementById("playSurah")) { stopQuranAudio(); return; }
-    qAudio = new Audio(full ? surahAudioURL(surah) : ayahURL(surah, aNo));
-    qAudio.dataset.a = full ? "full" : aNo;
+  const run = qPlayState = { surah, ayah: startAyah, total: totalAyahs, name: surahName, repeatMode };
+  const play = () => {
+    if (qPlayState !== run) return;
+    if (run.ayah > run.total) {
+      if (run.repeatMode === "surah") run.ayah = 1;
+      else if (run.surah < 114 || run.repeatMode === "quran") {
+        run.surah = run.surah === 114 ? 1 : run.surah + 1;
+        const next = (QURAN_PACK.surahs || []).find(s => s.number === run.surah);
+        if (!next) { stopQuranAudio(); return; }
+        run.total = next.ayah_count || next.ayahs.length;
+        run.name = next.name_transliteration || `Surah ${run.surah}`;
+        run.ayah = 1;
+      } else { stopQuranAudio(); return; }
+    }
+    const full = !!curRecInfo().fullSurah;
+    qAudio = new Audio(full ? surahAudioURL(run.surah) : ayahURL(run.surah, run.ayah));
+    qAudio.dataset.a = full ? "full" : run.ayah;
     document.querySelectorAll(".ayah.playing").forEach(el => el.classList.remove("playing"));
     if (!full) {
-      const row = document.querySelector(`.ayah[data-a="${aNo}"]`);
+      const row = document.querySelector(`.ayah[data-a="${run.ayah}"]`);
       if (row) { row.classList.add("playing"); row.scrollIntoView({ block: "center", behavior: "smooth" }); }
     }
-    document.getElementById("playSurah").textContent = full ? "⏹ Stop surah" : `⏹ Stop (${aNo}/${totalAyahs})`;
-    setMediaSession(surahName);
+    const button = document.getElementById("playSurah");
+    if (button) button.textContent = full ? `⏹ Stop (${run.surah}/114)` : `⏹ Stop (${run.surah}:${run.ayah}/${run.total})`;
+    setMediaSession(run.name);
     wireMediaSession();
-    qAudio.addEventListener("ended", () => full ? stopQuranAudio() : play(aNo + 1));
-    qAudio.addEventListener("error", () => stopQuranAudio());
-    qAudio.play().catch(() => stopQuranAudio());
+    qAudio.addEventListener("ended", () => { if (qPlayState === run) { run.ayah += full ? run.total : 1; play(); } });
+    qAudio.addEventListener("error", () => { if (qPlayState === run) stopQuranAudio(); });
+    qAudio.play().catch(() => { if (qPlayState === run) stopQuranAudio(); });
   };
-  play(full ? 1 : startAyah);
+  play();
 }
 
 // ---- Memorize mode: ayah-by-ayah with per-ayah repetition, range loops,
